@@ -3,6 +3,48 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
 
+// ─── Drag-to-resize hook ──────────────────────────────────────────────────────
+function useDragResize({ initial, min, max, direction = "right" }) {
+  const [size, setSize] = useState(initial);
+  const dragging  = useRef(false);
+  const startX    = useRef(0);
+  const startSize = useRef(0);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    dragging.current  = true;
+    startX.current    = e.clientX;
+    startSize.current = size;
+
+    const onMove = (ev) => {
+      if (!dragging.current) return;
+      const delta = ev.clientX - startX.current;
+      const next  = direction === "right"
+        ? startSize.current + delta
+        : startSize.current - delta;
+      setSize(Math.min(max, Math.max(min, next)));
+    };
+    const onUp = () => {
+      dragging.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [size, min, max, direction]);
+
+  const handleProps = {
+    onMouseDown,
+    style: {
+      position: "absolute", top: 0, bottom: 0, width: 6,
+      cursor: "col-resize", zIndex: 20, background: "transparent",
+      ...(direction === "right" ? { right: -3 } : { left: -3 }),
+    },
+  };
+
+  return [size, handleProps];
+}
+
 const StockChart = dynamic(() => import("../components/StockChart"), {
   ssr: false,
   loading: () => (
@@ -179,6 +221,10 @@ export default function AppPage() {
 
   const profileRef = useRef(null);
 
+  // ── Resizable sidebars ────────────────────────────────────────────────────
+  const [leftW,  leftHandleProps]  = useDragResize({ initial: 218, min: 160, max: 340, direction: "right" });
+  const [rightW, rightHandleProps] = useDragResize({ initial: 238, min: 180, max: 360, direction: "left" });
+
   useEffect(() => {
     const h = (e) => { if (profileRef.current && !profileRef.current.contains(e.target)) setShowProfile(false); };
     document.addEventListener("mousedown", h);
@@ -302,13 +348,17 @@ export default function AppPage() {
         padding: "0 18px", boxShadow: "var(--sh)", position: "relative", zIndex: 50, flexShrink: 0,
       }}>
         {/* Brand with logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }} onClick={() => setCenterTab("welcome")}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Anchor" style={{ width: 28, height: 28, objectFit: "contain" }} />
-          <span style={{ fontFamily: "Playfair Display, serif", fontSize: 20, fontWeight: 700, letterSpacing: -.5, color: "var(--t1)" }}>
-            Anchor
-          </span>
-          <span className="lbl" style={{ letterSpacing: 2 }}>Paper Trading</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 0, cursor: "pointer" }} onClick={() => setCenterTab("welcome")}>
+          {/* logo + wordmark grouped so logo stays centered next to text */}
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginRight: 8 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="Anchor" style={{ width: 28, height: 28, objectFit: "contain" }} />
+            <span style={{ fontFamily: "Playfair Display, serif", fontSize: 20, fontWeight: 700, letterSpacing: -.5, color: "var(--t1)" }}>
+              Anchor
+            </span>
+          </div>
+          {/* Pill sits at the cap-height baseline of "Anchor" */}
+          <span className="lbl" style={{ letterSpacing: 2, position: "relative", top: "-1px" }}>Paper Trading</span>
         </div>
 
         {/* Nav tabs */}
@@ -456,7 +506,10 @@ export default function AppPage() {
       <div style={{ display: "flex", height: "calc(100vh - 52px)", overflow: "hidden" }}>
 
         {/* ════ LEFT ════ */}
-        <aside style={{ width: 218, flexShrink: 0, borderRight: "1px solid var(--b1)", background: "var(--surf)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <aside style={{ width: leftW, flexShrink: 0, borderRight: "1px solid var(--b1)", background: "var(--surf)", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+          {/* Drag handle */}
+          <div {...leftHandleProps} />
+
 
           {/* Date */}
           <div style={{ padding: "13px 13px 11px", borderBottom: "1px solid var(--b1)" }}>
@@ -753,7 +806,9 @@ export default function AppPage() {
           </main>
 
           {/* ── RIGHT SIDEBAR ── */}
-          <aside style={{ width: 238, flexShrink: 0, borderLeft: "1px solid var(--b1)", background: "var(--surf)", overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 11 }}>
+          <aside style={{ width: rightW, flexShrink: 0, borderLeft: "1px solid var(--b1)", background: "var(--surf)", overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 11, position: "relative" }}>
+            {/* Drag handle */}
+            <div {...rightHandleProps} />
             <div className="lbl">Metrics</div>
             {[
               { l: "Total Value", v: fmtUSD(total), big: true },

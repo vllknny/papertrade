@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}"
+self.__REACT_LOADABLE_MANIFEST="{\"pages\\\\app.jsx -> ../components/StockChart\":{\"id\":\"pages\\\\app.jsx -> ../components/StockChart\",\"files\":[\"static/chunks/components_StockChart_jsx.js\"]},\"pages\\\\app.jsx -> ../components/Tutorial\":{\"id\":\"pages\\\\app.jsx -> ../components/Tutorial\",\"files\":[\"static/chunks/components_Tutorial_jsx.js\"]}}"
