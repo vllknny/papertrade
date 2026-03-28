@@ -1,15 +1,22 @@
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 
+const hasGoogleOAuthEnv = Boolean(
+  process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+);
+
 export const authOptions = {
-  providers: [
-    GoogleProvider({
-      clientId:     process.env.GOOGLE_CLIENT_ID     || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-    }),
-  ],
+  providers: hasGoogleOAuthEnv
+    ? [
+        GoogleProvider({
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        }),
+      ]
+    : [],
   pages: {
-    signIn: "/",   // We handle sign-in in our own UI
+    signIn: "/", // We handle sign-in in our own UI
+    error: "/auth/error",
   },
   callbacks: {
     async session({ session, token }) {

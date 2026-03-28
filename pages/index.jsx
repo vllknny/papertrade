@@ -1,6 +1,6 @@
 import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 function GoogleIcon() {
   return (
@@ -22,10 +22,39 @@ const TICKERS = [
 export default function LoginPage() {
   const { status } = useSession();
   const router = useRouter();
+  const [googleConfigured, setGoogleConfigured] = useState(true);
+  const [configLoading, setConfigLoading] = useState(true);
 
   useEffect(() => {
     if (status === "authenticated") router.replace("/app");
   }, [status, router]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const checkOAuthConfig = async () => {
+      try {
+        const res = await fetch("/api/auth/config");
+        const data = await res.json();
+        if (mounted) {
+          setGoogleConfigured(Boolean(data.googleConfigured));
+        }
+      } catch {
+        if (mounted) {
+          setGoogleConfigured(false);
+        }
+      } finally {
+        if (mounted) {
+          setConfigLoading(false);
+        }
+      }
+    };
+
+    checkOAuthConfig();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (status === "loading") return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)" }}>
@@ -135,11 +164,30 @@ export default function LoginPage() {
           <button
             className="google-btn"
             onClick={() => signIn("google", { callbackUrl: "/app" })}
+            disabled={!googleConfigured || configLoading}
             style={{ marginBottom: 14 }}
           >
             <GoogleIcon />
-            <span style={{ display: "block", lineHeight: "18px" }}>Continue with Google</span>
+            <span style={{ display: "block", lineHeight: "18px" }}>
+              {configLoading
+                ? "Checking Google OAuth..."
+                : googleConfigured
+                  ? "Continue with Google"
+                  : "Google OAuth not configured"}
+            </span>
           </button>
+
+          {!configLoading && !googleConfigured && (
+            <p style={{
+              fontFamily: "DM Sans",
+              fontSize: 12,
+              color: "var(--red)",
+              marginBottom: 14,
+              lineHeight: 1.5,
+            }}>
+              Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env.local, then restart the dev server.
+            </p>
+          )}
 
           {/* Divider */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" }}>
