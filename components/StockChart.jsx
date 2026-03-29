@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, ReferenceLine, CartesianGrid, Cell,
+  ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from "recharts";
 
 const fmtUSD  = (n) => `$${(+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -53,28 +53,37 @@ function CandleTooltip({ active, payload, label }) {
 }
 
 // ── Custom candlestick bar shape ──────────────────────────────────────────────
+// Recharts 2.x strips `yAxis` from Bar shape props (filterProps keeps only SVG attrs),
+// so we map price → pixel Y from the bar geometry. For ComposedChart horizontal layout,
+// each bar spans from getBaseValueOfBar (= domain min for all-positive prices) to `close`.
 function CandleBarShape(props) {
-  const { x, width, payload } = props;
-  // yAxis injected by recharts – access via yAxisMap or direct yAxis prop
-  const yAxis = props.yAxis ?? props.yAxisMap?.["0"];
-  if (!payload || !yAxis?.scale) return null;
+  const { x, y, width, height, payload, value, priceBase } = props;
+  if (!payload) return null;
 
   const { open, high, low, close } = payload;
-  if (open == null || high == null || low == null || close == null) return null;
+  const c = close ?? value;
+  if (open == null || high == null || low == null || c == null) return null;
 
-  const sc       = yAxis.scale;
-  const yH       = sc(high);
-  const yL       = sc(low);
-  const yO       = sc(open);
-  const yC       = sc(close);
-  const up       = close >= open;
-  const stroke   = up ? "#16a34a" : "#dc2626";
+  const base = priceBase ?? 0;
+  const span = c - base;
+  if (Math.abs(span) < 1e-9) return null;
+
+  const yBottom = y + height;
+  /** Aligns with Recharts’ yAxis.scale between baseline and close for this bar */
+  const yOf = (price) => yBottom - ((price - base) / span) * height;
+
+  const yH = yOf(high);
+  const yL = yOf(low);
+  const yO = yOf(open);
+  const yC = yOf(c);
+  const up = c >= open;
+  const stroke = up ? "#16a34a" : "#dc2626";
   const bodyFill = up ? "#dcfce7" : "#fee2e2";
-  const bodyTop  = Math.min(yO, yC);
-  const bodyBot  = Math.max(yO, yC);
-  const bodyH    = Math.max(bodyBot - bodyTop, 1.5);
-  const midX     = x + width / 2;
-  const cw       = Math.max(Math.min(width * 0.65, 14), 3);
+  const bodyTop = Math.min(yO, yC);
+  const bodyBot = Math.max(yO, yC);
+  const bodyH = Math.max(bodyBot - bodyTop, 1.5);
+  const midX = x + width / 2;
+  const cw = Math.max(Math.min(width * 0.65, 14), 3);
 
   return (
     <g>
@@ -212,11 +221,13 @@ export default function StockChart({ data, chartUp, avgCost }) {
               {refLine}
               {/* Ghost line to anchor YAxis domain */}
               <Line yAxisId={0} dataKey="close" stroke="transparent" dot={false} legendType="none" isAnimationActive={false} />
-              <Bar yAxisId={0} dataKey="close" shape={<CandleBarShape />} isAnimationActive={false} maxBarSize={18}>
-                {chartData.map((_, i) => (
-                  <Cell key={i} fill="transparent" />
-                ))}
-              </Bar>
+              <Bar
+                yAxisId={0}
+                dataKey="close"
+                shape={(barProps) => <CandleBarShape {...barProps} priceBase={yMin} />}
+                isAnimationActive={false}
+                maxBarSize={18}
+              />
             </ComposedChart>
           ) : (
             <ComposedChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>

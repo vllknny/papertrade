@@ -39,18 +39,13 @@ export default function LoginPage() {
       {/* ── LEFT: Hero ── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "52px 72px", justifyContent: "center" }}>
 
-        {/* Brand — logo on top, "Anchor" below it, "Paper Trading" stacked under */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, marginBottom: 52 }}>
+        {/* Brand */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 52 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="Anchor" style={{ width: 42, height: 42, objectFit: "contain" }} />
           <span style={{ fontFamily: "Playfair Display, serif", fontSize: 26, fontWeight: 700, letterSpacing: -.5, lineHeight: 1 }}>
             Anchor
           </span>
-          <span style={{
-            fontFamily: "DM Mono, monospace", fontSize: 9, letterSpacing: 2.5, textTransform: "uppercase",
-            color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a",
-            padding: "3px 10px", borderRadius: 20, marginTop: 2,
-          }}>Paper Trading</span>
         </div>
 
         {/* Hero */}
@@ -70,13 +65,15 @@ export default function LoginPage() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
             {[
-              ["🕰", "Time-travel to any date from 2000 to 2024"],
-              ["📊", "Real historical price data from Yahoo Finance"],
-              ["🧠", "Era-accurate market context for each period"],
-              ["💼", "Full portfolio tracking with P&L and history"],
-            ].map(([icon, text]) => (
+              ["M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Time-travel to any date from 2000 to 2024"],
+              ["M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", "Real historical price data from Yahoo Finance"],
+              ["M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z", "Era-accurate market context for each period"],
+              ["M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zm-9 5a2 2 0 104 0 2 2 0 00-4 0z", "Full portfolio tracking with P&L and history"],
+            ].map(([iconPath, text]) => (
               <div key={text} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 17, lineHeight: 1 }}>{icon}</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d={iconPath} />
+                </svg>
                 <span style={{ fontFamily: "DM Sans", fontSize: 14, color: "var(--t2)" }}>{text}</span>
               </div>
             ))}

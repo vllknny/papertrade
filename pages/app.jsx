@@ -37,40 +37,6 @@ function useDragResize({ initial, min, max, direction = "right" }) {
   }}];
 }
 
-// ─── Drag-to-resize hook (vertical — for analysis panel height) ───────────────
-function useVerticalDragResize({ initial, min, max }) {
-  const [size, setSize]   = useState(initial);
-  const dragging  = useRef(false);
-  const startY    = useRef(0);
-  const startSize = useRef(0);
-
-  const onMouseDown = useCallback((e) => {
-    e.preventDefault();
-    dragging.current  = true;
-    startY.current    = e.clientY;
-    startSize.current = size;
-    const onMove = (ev) => {
-      if (!dragging.current) return;
-      // dragging DOWN increases analysis panel (graph shrinks), UP shrinks it
-      const delta = ev.clientY - startY.current;
-      setSize(Math.min(max, Math.max(min, startSize.current + delta)));
-    };
-    const onUp = () => {
-      dragging.current = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [size, min, max]);
-
-  return [size, { onMouseDown, style: {
-    height: 6, cursor: "row-resize", zIndex: 20,
-    background: "transparent", width: "100%",
-    flexShrink: 0,
-  }}];
-}
-
 const StockChart = dynamic(() => import("../components/StockChart"), {
   ssr: false,
   loading: () => (
@@ -84,6 +50,8 @@ const Tutorial = dynamic(() => import("../components/Tutorial"), { ssr: false })
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STARTING_CASH = 100_000;
+/** Fixed height (px) for the Trade view bottom analysis panel */
+const ANALYSIS_PANEL_HEIGHT = 160;
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 const POPULAR_BY_ERA = [
@@ -389,10 +357,6 @@ export default function AppPage() {
   // ── Resizable sidebars (horizontal) ───────────────────────────────────────
   const [leftW,  leftHandleProps]  = useDragResize({ initial: 224, min: 170, max: 340, direction: "right" });
   const [rightW, rightHandleProps] = useDragResize({ initial: 242, min: 190, max: 360, direction: "left" });
-
-  // ── Resizable analysis panel (vertical) ───────────────────────────────────
-  // analysisPanelH controls the ANALYSIS section height; graph takes the rest
-  const [analysisPanelH, analysisHandleProps] = useVerticalDragResize({ initial: 160, min: 80, max: 360 });
 
   useEffect(() => {
     const h = (e) => { if (profileRef.current && !profileRef.current.contains(e.target)) setShowProfile(false); };
@@ -896,8 +860,8 @@ export default function AppPage() {
                   )}
                 </div>
 
-                {/* ── Chart — takes 2/3 of remaining vertical space ── */}
-                <div style={{ flex: "0 0 calc(66.67% - 26px)", background: "var(--surf)", borderBottom: "1px solid var(--b1)", padding: "10px 16px 8px", overflow: "hidden", minHeight: 120 }}>
+                {/* ── Chart — fills space above fixed-height analysis panel ── */}
+                <div style={{ flex: 1, minHeight: 0, background: "var(--surf)", borderBottom: "1px solid var(--b1)", padding: "10px 16px 8px", overflow: "hidden" }}>
                   {loading ? (
                     <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <div style={{ width: 20, height: 20, border: "2px solid var(--b1)", borderTopColor: "var(--t1)", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
@@ -907,22 +871,8 @@ export default function AppPage() {
                   )}
                 </div>
 
-                {/* ── Drag handle between chart and analysis ── */}
-                <div
-                  {...analysisHandleProps}
-                  style={{
-                    ...analysisHandleProps.style,
-                    background: "var(--b1)",
-                    borderTop: "1px solid var(--b1)",
-                    borderBottom: "1px solid var(--b1)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}
-                >
-                  <div style={{ width: 32, height: 2, background: "var(--b2)", borderRadius: 2 }} />
-                </div>
-
-                {/* ── Analysis panel — resizable height ── */}
-                <div style={{ height: analysisPanelH, flexShrink: 0, overflowY: "auto", padding: "14px 20px", background: "var(--surf)", borderTop: "1px solid var(--b1)" }}>
+                {/* ── Analysis panel — fixed height ── */}
+                <div style={{ height: ANALYSIS_PANEL_HEIGHT, flexShrink: 0, overflowY: "auto", padding: "14px 20px", background: "var(--surf)", borderTop: "1px solid var(--b1)" }}>
                   {stockData ? (
                     <div style={{ display: "flex", gap: 20 }}>
 
