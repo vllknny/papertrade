@@ -2,6 +2,11 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/api/auth/[...nextauth]": "pages/api/auth/[...nextauth].js",
   "/app": "pages/app.js",
+<<<<<<< HEAD
   "/api/auth/[...nextauth]": "pages/api/auth/[...nextauth].js"
+=======
+  "/api/portfolio": "pages/api/portfolio.js"
+>>>>>>> 067f9e502a2864263cc7dfce930069a97884231b
 }

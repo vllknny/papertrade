@@ -115,6 +115,15 @@ const STEPS = [
 
 export default function Tutorial({ onClose }) {
   const [step, setStep] = useState(0);
+  const [prevStep, setPrevStep] = useState(0);
+  
+  const navTo = (i) => {
+    if (i !== step) {
+      setPrevStep(step);
+      setStep(i);
+    }
+  };
+
   const s = STEPS[step];
   const isLast = step === STEPS.length - 1;
 
@@ -171,7 +180,7 @@ export default function Tutorial({ onClose }) {
             {STEPS.map((_, i) => (
               <div
                 key={i}
-                onClick={() => setStep(i)}
+                onClick={() => navTo(i)}
                 style={{
                   height: 3, borderRadius: 2, cursor: "pointer", flex: 1,
                   background: i <= step ? "#fff" : "rgba(255,255,255,.2)",
@@ -183,7 +192,7 @@ export default function Tutorial({ onClose }) {
         </div>
 
         {/* Body */}
-        <div className="tutorial-body">
+        <div className="tutorial-body" key={step} style={{ animation: `slideInFrom${step > prevStep ? "Right" : "Left"} 0.25s ease-in forwards` }}>
           <p style={{ fontFamily: "DM Sans", fontSize: 14, color: "var(--t1)", lineHeight: 1.7, marginBottom: 14 }}>
             {s.content.split("**").map((chunk, i) =>
               i % 2 === 1
@@ -206,7 +215,7 @@ export default function Tutorial({ onClose }) {
           {/* Dot navigation */}
           <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
             {STEPS.map((_, i) => (
-              <div key={i} className={`tutorial-step-dot ${i === step ? "active" : ""}`} onClick={() => setStep(i)} />
+              <div key={i} className={`tutorial-step-dot ${i === step ? "active" : ""}`} onClick={() => navTo(i)} />
             ))}
           </div>
 
@@ -214,13 +223,13 @@ export default function Tutorial({ onClose }) {
           <div style={{ display: "flex", gap: 8, justifyContent: "center", width: "100%" }}>
             <button
               className="tut-btn tut-btn-ghost"
-              onClick={() => setStep(s => Math.max(0, s - 1))}
+              onClick={() => navTo(Math.max(0, step - 1))}
               style={{ opacity: step === 0 ? 0 : 1, pointerEvents: step === 0 ? "none" : "auto", minWidth: 88 }}
             >
               ← Back
             </button>
             {!isLast ? (
-              <button className="tut-btn tut-btn-primary" onClick={() => setStep(s => s + 1)} style={{ minWidth: 88 }}>
+              <button className="tut-btn tut-btn-primary" onClick={() => navTo(step + 1)} style={{ minWidth: 88 }}>
                 Next →
               </button>
             ) : (
