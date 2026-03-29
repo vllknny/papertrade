@@ -141,7 +141,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       symbol: sym,
-      price:  last.close,
+      price:  (isLive && meta.regularMarketPrice) ? meta.regularMarketPrice : last.close,
       date:   last.date,
       name,
       chart,

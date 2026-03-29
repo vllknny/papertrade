@@ -50,8 +50,6 @@ const Tutorial = dynamic(() => import("../components/Tutorial"), { ssr: false })
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STARTING_CASH = 100_000;
-/** Fixed height (px) for the Trade view bottom analysis panel */
-const ANALYSIS_PANEL_HEIGHT = 160;
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 const POPULAR_BY_ERA = [
@@ -105,6 +103,40 @@ const ERAS = [
   { r:[2023,2099], m:"AI mania is driving a narrow rally led by Nvidia and the 'Magnificent 7.' The Fed has paused hiking but rates remain elevated. Soft landing hopes are growing.", risk:"Concentration risk — the S&P 500's returns are driven by fewer than 10 names.", opp:"Generative AI infrastructure buildout creates multi-year capex tailwinds for semiconductors." },
 ];
 const getEra = (yr) => ERAS.find(e => yr >= e.r[0] && yr <= e.r[1]) || ERAS[ERAS.length - 1];
+
+const COMPANY_ERAS = {
+  AAPL: [
+    { r: [2000, 2006], m: "Apple is riding the massive success of the iPod and iTunes. Steve Jobs is preparing 'a revolutionary mobile phone'." },
+    { r: [2007, 2009], m: "The iPhone has just launched, completely disrupting the mobile industry. The App Store is changing software distribution." },
+    { r: [2010, 2014], m: "The iPad joins the lineup. Post-Jobs era begins with Tim Cook. China expansion is driving unprecedented revenue growth." },
+    { r: [2015, 2099], m: "Apple Watch and AirPods established wearables dominance. Services revenue (App Store, Music, TV) is now a primary growth engine." },
+  ],
+  MSFT: [
+    { r: [2000, 2013], m: "Windows and Office hold monopolies, but Microsoft missed the early mobile and search waves under Steve Ballmer's tenure." },
+    { r: [2014, 2099], m: "Satya Nadella has shifted focus to 'Cloud First'. Azure is exploding, and Microsoft is positioning itself as an AI leader with OpenAI." },
+  ],
+  AMZN: [
+    { r: [2000, 2010], m: "Amazon dominates e-commerce and introduced Prime. AWS is quietly launching, building the foundation of modern cloud computing." },
+    { r: [2011, 2099], m: "AWS is a massive profit engine. Prime video and logistics dominance are cementing Amazon's moat across multiple industries." },
+  ],
+  GOOGL: [
+    { r: [2000, 2014], m: "Google monopolizes search and digital ads. Android has been acquired and is quickly taking over global smartphone market share." },
+    { r: [2015, 2099], m: "Alphabet restructured to separate core search from 'other bets' like Waymo. DeepMind and AI advancements are driving future product vision." },
+  ],
+  TSLA: [
+    { r: [2010, 2016], m: "Tesla successfully brought the Model S and Model X to market, proving EV viability. The massive Gigafactory project is underway." },
+    { r: [2017, 2099], m: "The Model 3 achieved mass market scale despite 'production hell'. Tesla is now wildly profitable and leading the autonomous driving race." },
+  ],
+  META: [
+    { r: [2012, 2020], m: "Facebook transitions successfully to mobile. Massive acquisitions of Instagram and WhatsApp cement its global social dominance." },
+    { r: [2021, 2099], m: "Rebranded to Meta to focus on the 'Metaverse'. Heavy investments in AI and AR/VR outline Mark Zuckerberg's next decade strategy." },
+  ]
+};
+const getCompanyBrief = (sym, yr) => {
+  const briefs = COMPANY_ERAS[sym];
+  if (!briefs) return null;
+  return briefs.find(e => yr >= e.r[0] && yr <= e.r[1])?.m;
+};
 
 const fmtUSD  = (n) => `$${(+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtShrt = (n) => `$${(+n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -287,6 +319,7 @@ function WelcomeScreen({ onStart, onTutorial, simYear, userName }) {
               background: "var(--surf)", color: "var(--t2)", border: "1px solid var(--b1)",
               borderRadius: 10, padding: "12px 28px", fontFamily: "DM Mono", fontSize: 12,
               fontWeight: 500, letterSpacing: .5, cursor: "pointer", transition: "all .15s",
+              display: "flex", alignItems: "center", justifyContent: "center"
             }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--b2)"; e.currentTarget.style.color = "var(--t1)"; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--b1)"; e.currentTarget.style.color = "var(--t2)"; }}
@@ -330,10 +363,51 @@ export default function AppPage() {
   }, [status, isGuest, router]);
 
   const [simDate,     setSimDate]     = useState("2011-10-15");
+  const [startingCash,setStartingCash]= useState(STARTING_CASH);
   const [cash,        setCash]        = useState(STARTING_CASH);
   const [positions,   setPositions]   = useState([]);
   const [trades,      setTrades]      = useState([]);
   const [prices,      setPrices]      = useState({});
+
+  const [portfolios,   setPortfolios]   = useState([]);
+  const [activePortId, setActivePortId] = useState(null);
+  const [modal,        setModal]        = useState(null);
+
+  const loadPortfolioIntoState = useCallback((p) => {
+    if (!p) {
+      setActivePortId(null); setStartingCash(100000); setCash(100000); setPositions([]); setTrades([]); return;
+    }
+    setActivePortId(p.id);
+    setStartingCash(p.startingCash ?? 100000);
+    setCash(p.cash ?? 100000);
+    setSimDate(p.simDate ?? "2011-10-15");
+    setPositions(p.positions ?? []);
+    setTrades(p.trades ?? []);
+  }, []);
+
+  useEffect(() => {
+    if (status === "authenticated" && !isGuest) {
+      fetch("/api/portfolio").then(r => r.json()).then(d => {
+        if (d.portfolios && d.portfolios.length > 0) {
+          setPortfolios(d.portfolios);
+          loadPortfolioIntoState(d.portfolios[0]);
+        }
+      });
+    }
+  }, [status, isGuest, loadPortfolioIntoState]);
+
+  const autosync = useRef(null);
+  useEffect(() => {
+    if (!activePortId || status !== "authenticated") return;
+    clearTimeout(autosync.current);
+    autosync.current = setTimeout(() => {
+      fetch("/api/portfolio", {
+        method: "PUT",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ id: activePortId, simDate, cash, positions, trades })
+      });
+    }, 1200);
+  }, [simDate, cash, positions, trades, activePortId, status]);
 
   const [query,       setQuery]       = useState("");
   const [results,     setResults]     = useState([]);
@@ -347,7 +421,11 @@ export default function AppPage() {
   const [orderShares, setOrderShares] = useState(1);
   const [orderSide,   setOrderSide]   = useState("buy");
 
-  const [centerTab,    setCenterTab]    = useState("welcome");
+  const [centerTab,    _setCenterTab]   = useState("welcome");
+  const [prevTab,      setPrevTab]      = useState("welcome");
+  const setCenterTab = useCallback((t) => { if (t !== centerTab) { setPrevTab(centerTab); _setCenterTab(t); } }, [centerTab]);
+  const tabIdx = { welcome: 0, analysis: 1, positions: 2, history: 3 };
+
   const [showProfile,  setShowProfile]  = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [flash,        setFlash]        = useState(null);
@@ -441,8 +519,8 @@ export default function AppPage() {
   // ── Portfolio ────────────────────────────────────────────────────────────────
   const equity  = positions.reduce((s, p) => s + p.shares * (prices[p.symbol] ?? p.avgCost), 0);
   const total   = cash + equity;
-  const pnl     = total - STARTING_CASH;
-  const pnlPct  = (pnl / STARTING_CASH) * 100;
+  const pnl     = total - startingCash;
+  const pnlPct  = (pnl / startingCash) * 100;
   const curPos  = selectedSym ? positions.find(p => p.symbol === selectedSym) : null;
   const chartUp = chartData.length > 1 ? chartData[chartData.length - 1].close >= chartData[0].close : true;
 
@@ -459,6 +537,98 @@ export default function AppPage() {
 
   return (
     <>
+      {modal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "var(--bg)", width: 360, borderRadius: 12, padding: 24, boxShadow: "var(--shm)", animation: "fadeUp .2s ease" }}>
+            {modal.type === "create_portfolio" && (
+               <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const name = e.target.pname.value || "New Portfolio";
+                  const c = Number(e.target.pcash.value) || 100000;
+                  const r = await fetch("/api/portfolio", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ name, startingCash: c }) });
+                  const data = await r.json();
+                  
+                  if (!r.ok || data.error) {
+                    pop(data.error === "User not found" ? "Error: Please sign out and sign back in" : `Error: ${data.error || "Failed to create"}`);
+                    return;
+                  }
+                  
+                  const { portfolio } = data;
+                  setPortfolios([portfolio, ...portfolios]);
+                  loadPortfolioIntoState(portfolio);
+                  setModal(null);
+                  pop("Portfolio created");
+               }}>
+                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Create Portfolio</h3>
+                 <label style={{ display: "block", fontSize: 11, color: "var(--t2)", marginBottom: 4 }}>Name</label>
+                 <input name="pname" autoFocus style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid var(--b1)", marginBottom: 12 }} />
+                 <label style={{ display: "block", fontSize: 11, color: "var(--t2)", marginBottom: 4 }}>Starting Cash</label>
+                 <input name="pcash" type="number" defaultValue={100000} style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid var(--b1)", marginBottom: 20 }} />
+                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                   <button type="button" onClick={() => setModal(null)} className="tut-btn tut-btn-ghost">Cancel</button>
+                   <button type="submit" className="tut-btn tut-btn-primary">Create</button>
+                 </div>
+               </form>
+            )}
+            {modal.type === "rename_portfolio" && (
+               <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const name = e.target.pname.value;
+                  await fetch("/api/portfolio", { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ id: modal.id, name }) });
+                  setPortfolios(pfs => pfs.map(p => p.id === modal.id ? { ...p, name } : p));
+                  setModal(null);
+               }}>
+                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Rename Portfolio</h3>
+                 <input name="pname" defaultValue={modal.name} autoFocus style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid var(--b1)", marginBottom: 20 }} />
+                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                   <button type="button" onClick={() => setModal(null)} className="tut-btn tut-btn-ghost">Cancel</button>
+                   <button type="submit" className="tut-btn tut-btn-primary">Save</button>
+                 </div>
+               </form>
+            )}
+            {modal.type === "delete_portfolio" && (
+               <div>
+                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "var(--red)" }}>Delete Portfolio?</h3>
+                 <p style={{ fontSize: 13, color: "var(--t2)", marginBottom: 20 }}>Are you sure you want to delete <strong>{modal.name}</strong>? This action cannot be undone.</p>
+                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                   <button type="button" onClick={() => setModal(null)} className="tut-btn tut-btn-ghost">Cancel</button>
+                   <button onClick={async () => {
+                     const r = await fetch("/api/portfolio", { method: "DELETE", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ id: modal.id }) });
+                     const data = await r.json();
+                     if (!r.ok || data.error) {
+                        pop(data.error === "User not found" ? "Error: Please sign out and sign back in" : `Error: ${data.error || "Failed to delete"}`);
+                        return;
+                     }
+                     setPortfolios(pfs => pfs.filter(p => p.id !== modal.id));
+                     if (activePortId === modal.id) loadPortfolioIntoState(portfolios.find(p => p.id !== modal.id));
+                     setModal(null);
+                   }} style={{ background: "var(--red)", color: "#fff", padding: "9px 22px", borderRadius: 8, border: "none" }}>Delete</button>
+                 </div>
+               </div>
+            )}
+            {modal.type === "edit_cash" && (
+               <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const num = Number(e.target.pcash.value);
+                  if (!isNaN(num)) {
+                     setCash(c => c + (num - startingCash));
+                     setStartingCash(num);
+                  }
+                  setModal(null);
+                  pop(`Starting cash updated to ${fmtUSD(num)}`);
+               }}>
+                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Edit Starting Cash</h3>
+                 <input name="pcash" type="number" defaultValue={startingCash} autoFocus style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid var(--b1)", marginBottom: 20 }} />
+                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                   <button type="button" onClick={() => setModal(null)} className="tut-btn tut-btn-ghost">Cancel</button>
+                   <button type="submit" className="tut-btn tut-btn-primary">Save</button>
+                 </div>
+               </form>
+            )}
+          </div>
+        </div>
+      )}
+
       {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
 
       {flash && (
@@ -599,9 +769,21 @@ export default function AppPage() {
                 ))}
 
                 <div style={{ borderTop: "1px solid var(--b1)", padding: "8px 16px" }}>
-                  <div className="lbl" style={{ marginBottom: 6 }}>Portfolio</div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Active Portfolio</div>
                   <div className="mono" style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.9 }}>
-                    Cash: {fmtUSD(cash)}<br />
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span>Cash: {fmtUSD(cash)}</span>
+                      {!isGuest && (
+                        <button 
+                          className="portfolio-action-btn"
+                          onClick={() => setModal({ type: 'edit_cash' })}
+                          style={{ padding: "0 6px", height: "auto" }}
+                          title="Edit Starting Cash"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                        </button>
+                      )}
+                    </div>
                     P&amp;L: <span style={{ color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnL(pnl)}</span><br />
                     Trades: {trades.length}
                   </div>
@@ -612,17 +794,19 @@ export default function AppPage() {
                     className="profile-menu-item"
                     style={{ color: "var(--red)" }}
                     onClick={() => {
-                      setCash(STARTING_CASH); setPositions([]); setTrades([]);
-                      setPrices({}); setSelectedSym(null); setStockData(null);
-                      setChartData([]); setShowProfile(false); setCenterTab("welcome");
-                      pop("Portfolio reset");
+                      if (activePortId) {
+                        setModal({ type: 'delete_portfolio', id: activePortId, name: portfolios.find(p=>p.id===activePortId)?.name || "Portfolio" });
+                        setShowProfile(false);
+                      } else {
+                        setCash(startingCash); setPositions([]); setTrades([]); pop("Portfolio reset");
+                      }
                     }}
                   >
                     <span className="profile-menu-icon">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
                       </svg>
-                    </span> Reset Portfolio
+                    </span> Delete Active Portfolio
                   </button>
                   {!isGuest && (
                     <button
@@ -806,7 +990,7 @@ export default function AppPage() {
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
           {/* Center */}
-          <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)" }}>
+          <main key={centerTab} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", animation: `slideInFrom${tabIdx[centerTab] > tabIdx[prevTab] ? 'Right' : 'Left'} 0.25s ease-in forwards` }}>
 
             {centerTab === "welcome" && (
               <WelcomeScreen
@@ -871,8 +1055,8 @@ export default function AppPage() {
                   )}
                 </div>
 
-                {/* ── Analysis panel — fixed height ── */}
-                <div style={{ height: ANALYSIS_PANEL_HEIGHT, flexShrink: 0, overflowY: "auto", padding: "14px 20px", background: "var(--surf)", borderTop: "1px solid var(--b1)" }}>
+                {/* ── Analysis panel ── */}
+                <div style={{ flexShrink: 0, padding: "14px 20px", background: "var(--surf)", borderTop: "1px solid var(--b1)" }}>
                   {stockData ? (
                     <div style={{ display: "flex", gap: 20 }}>
 
@@ -895,20 +1079,21 @@ export default function AppPage() {
                         </div>
                         <p style={{ fontFamily: "DM Sans", fontSize: 12, color: "var(--t2)", lineHeight: 1.75, marginBottom: 10 }}>
                           {era.m}{" "}
+                          {getCompanyBrief(stockData.symbol, simYear) && <span style={{ color: "var(--t1)", fontWeight: 500 }}>{` ${getCompanyBrief(stockData.symbol, simYear)} `}</span>}
                           <strong style={{ color: "var(--t1)", fontWeight: 600 }}>{stockData.name}</strong>{" "}
                           is trading at {fmtUSD(stockData.price)}.{" "}
                           <em>Risk:</em> {era.risk}{" "}
                           <em>Opportunity:</em> {era.opp}
                         </p>
                         {/* Quick stat tiles */}
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                           {[
                             { l: "Price",    v: fmtUSD(stockData.price) },
                             { l: "Cash",     v: fmtUSD(cash) },
                             { l: "Position", v: curPos ? fmtUSD(curPos.shares * (prices[stockData.symbol] ?? stockData.price)) : "—" },
-                            stockData.marketCap  ? { l: "Mkt Cap",  v: stockData.marketCap }  : null,
-                            stockData.peRatio    ? { l: "P/E",      v: stockData.peRatio }     : null,
-                            stockData.beta       ? { l: "Beta",     v: stockData.beta }        : null,
+                            curPos           ? { l: "Shares Held", v: curPos.shares } : null,
+                            curPos           ? { l: "Avg Cost",    v: fmtUSD(curPos.avgCost) } : null,
+                            curPos           ? { l: "Unrlzd P&L",  v: fmtPnL((stockData.price - curPos.avgCost) * curPos.shares) } : null,
                           ].filter(Boolean).map(s => (
                             <div key={s.l} style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 7, padding: "6px 11px", minWidth: 80 }}>
                               <div className="lbl" style={{ marginBottom: 2, fontSize: 8 }}>{s.l}</div>
@@ -947,6 +1132,11 @@ export default function AppPage() {
                             stockData.eps           ? { l: "EPS (TTM)",    v: stockData.eps }           : null,
                             stockData.dividendYield ? { l: "Div Yield",    v: stockData.dividendYield } : null,
                             stockData.returnOnEquity? { l: "ROE",          v: stockData.returnOnEquity }: null,
+                            stockData.debtToEquity  ? { l: "Debt/Eq",      v: stockData.debtToEquity }  : null,
+                            stockData.pbRatio       ? { l: "P/B Ratio",    v: stockData.pbRatio }       : null,
+                            stockData.avgVolume     ? { l: "Avg Vol",      v: stockData.avgVolume }     : null,
+                            stockData.fiftyTwoWeekHigh ? { l: "52W High",  v: stockData.fiftyTwoWeekHigh }: null,
+                            stockData.fiftyTwoWeekLow  ? { l: "52W Low",   v: stockData.fiftyTwoWeekLow } : null,
                             stockData.employees     ? { l: "Employees",    v: stockData.employees }     : null,
                           ].filter(Boolean).map(s => (
                             <div key={s.l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid var(--b1)" }}>
@@ -975,27 +1165,68 @@ export default function AppPage() {
 
             {centerTab === "positions" && (
               <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
-                <h2 className="serif" style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Portfolio</h2>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, alignItems: "center" }}>
+                  <h2 className="serif" style={{ fontSize: 24, fontWeight: 700 }}>My Portfolios</h2>
+                  {!isGuest && (
+                    <button onClick={() => setModal({ type: 'create_portfolio' })} className="tut-btn tut-btn-primary" style={{ padding: "6px 14px", fontSize: 12 }}>+ New Portfolio</button>
+                  )}
+                </div>
+                
+                <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 16, marginBottom: 24, borderBottom: "1px solid var(--b1)" }}>
+                  {portfolios.length === 0 ? (
+                    <div className="mono" style={{ fontSize: 11, color: "var(--t3)" }}>No portfolios saved. Create one to get started.</div>
+                  ) : (
+                    portfolios.map(p => {
+                       const isActive = p.id === activePortId;
+                       return (
+                         <div key={p.id} onClick={() => loadPortfolioIntoState(p)} className="portfolio-tr" style={{ background: isActive ? "var(--surf)" : "var(--bg)", border: isActive ? "2px solid var(--t1)" : "1px solid var(--b1)", borderRadius: 10, padding: 14, minWidth: 200, cursor: "pointer", position: "relative" }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t1)", marginBottom: 4 }}>{p.name}</div>
+                            <div className="mono" style={{ fontSize: 11, color: "var(--t3)" }}>Cash: {fmtUSD(p.cash)}</div>
+                            
+                            <div className="portfolio-actions" style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 4 }}>
+                               <button className="portfolio-action-btn" onClick={(e) => { e.stopPropagation(); setModal({ type: 'rename_portfolio', id: p.id, name: p.name }); }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                               </button>
+                               <button className="portfolio-action-btn danger" onClick={(e) => { e.stopPropagation(); setModal({ type: 'delete_portfolio', id: p.id, name: p.name }); }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                               </button>
+                            </div>
+                         </div>
+                       );
+                    })
+                  )}
+                </div>
+
+                <h2 className="serif" style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Open Positions</h2>
                 {positions.length === 0 ? (
                   <div className="mono" style={{ textAlign: "center", padding: "48px 0", color: "var(--t3)", fontSize: 11 }}>No open positions — head to Trade to get started</div>
                 ) : (
                   <table>
-                    <thead><tr>{["Symbol","Name","Shares","Avg Cost","Current","Mkt Value","P&L","Return"].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                    <thead><tr>{["Symbol","Name","Shares","Avg Cost","Current","Mkt Value","P&L","Return",""].map(h => <th key={h}>{h}</th>)}</tr></thead>
                     <tbody>
                       {positions.map(p => {
                         const px = prices[p.symbol] ?? p.avgCost;
                         const gn = (px - p.avgCost) * p.shares;
                         const rt = ((px - p.avgCost) / p.avgCost) * 100;
                         return (
-                          <tr key={p.symbol} style={{ cursor: "pointer" }} onClick={() => { pickSym(p.symbol); setCenterTab("analysis"); }}>
+                          <tr key={p.symbol} className="portfolio-tr" onClick={() => { pickSym(p.symbol); setCenterTab("analysis"); }}>
                             <td style={{ fontWeight: 500 }}>{p.symbol}</td>
-                            <td style={{ color: "var(--t2)", fontSize: 10 }}>{p.name}</td>
+                            <td style={{ color: "var(--t2)", fontSize: 10 }}>{p.customName || p.name}</td>
                             <td>{p.shares}</td>
                             <td>{fmtUSD(p.avgCost)}</td>
                             <td>{fmtUSD(px)}</td>
                             <td>{fmtUSD(px * p.shares)}</td>
                             <td style={{ color: gn >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnL(gn)}</td>
                             <td><span className={`pill ${rt >= 0 ? "pill-up" : "pill-dn"}`}>{fmtPct(rt)}</span></td>
+                            <td style={{ textAlign: "right", paddingRight: 4, width: 40 }} onClick={e => e.stopPropagation()}>
+                              <div className="portfolio-actions" style={{ display: "flex", gap: 3, justifyContent: "flex-end" }}>
+                                <button className="portfolio-action-btn" title="Trade" onClick={(e) => {
+                                  e.stopPropagation(); pickSym(p.symbol); setCenterTab("analysis");
+                                }}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
