@@ -500,8 +500,9 @@ export default function AppPage() {
   const [loading,     setLoading]     = useState(false);
   const [stockErr,    setStockErr]    = useState("");
 
-  const [orderShares, setOrderShares] = useState(1);
+  const [orderShares, setOrderShares] = useState("");
   const [orderSide,   setOrderSide]   = useState("buy");
+  const [orderMode,   setOrderMode]   = useState("shares"); // "shares" or "money"
 
   const [centerTab,    _setCenterTab]   = useState("welcome");
   const [prevTab,      setPrevTab]      = useState("welcome");
@@ -596,27 +597,42 @@ export default function AppPage() {
 
   // ── Trade ───────────────────────────────────────────────────────────────────
   const trade = () => {
-    if (!stockData || orderShares <= 0) return;
-    const total = stockData.price * orderShares;
+    if (!stockData || orderShares === "") return;
+    
+    let shares, total;
+    if (orderMode === "shares") {
+      shares = parseInt(orderShares);
+      if (shares <= 0) return;
+      total = stockData.price * shares;
+    } else {
+      // Money mode
+      total = parseFloat(orderShares);
+      if (total <= 0) return;
+      shares = Math.floor(total / stockData.price);
+      if (shares <= 0) { pop("Amount too small to buy 1 share", "err"); return; }
+    }
+    
     if (orderSide === "buy") {
       if (total > cash) { pop("Insufficient funds", "err"); return; }
       setCash(c => +(c - total).toFixed(2));
       setPositions(prev => {
         const ex = prev.find(p => p.symbol === stockData.symbol);
         if (ex) return prev.map(p => p.symbol === stockData.symbol
-          ? { ...p, shares: p.shares + orderShares, avgCost: +((p.avgCost * p.shares + total) / (p.shares + orderShares)).toFixed(4) }
+          ? { ...p, shares: p.shares + shares, avgCost: +((p.avgCost * p.shares + total) / (p.shares + shares)).toFixed(4) }
           : p);
-        return [...prev, { symbol: stockData.symbol, name: stockData.name, shares: orderShares, avgCost: stockData.price }];
+        return [...prev, { symbol: stockData.symbol, name: stockData.name, shares: shares, avgCost: stockData.price }];
       });
-      pop(`Bought ${orderShares} × ${stockData.symbol} @ ${fmtUSD(stockData.price)}`);
+      pop(`Bought ${shares} × ${stockData.symbol} @ ${fmtUSD(stockData.price)}`);
     } else {
       const pos = positions.find(p => p.symbol === stockData.symbol);
-      if (!pos || pos.shares < orderShares) { pop("Not enough shares", "err"); return; }
+      if (!pos || pos.shares < shares) { pop("Not enough shares", "err"); return; }
       setCash(c => +(c + total).toFixed(2));
-      setPositions(prev => prev.map(p => p.symbol === stockData.symbol ? { ...p, shares: p.shares - orderShares } : p).filter(p => p.shares > 0));
-      pop(`Sold ${orderShares} × ${stockData.symbol} @ ${fmtUSD(stockData.price)}`);
+      setPositions(prev => prev.map(p => p.symbol === stockData.symbol ? { ...p, shares: p.shares - shares } : p).filter(p => p.shares > 0));
+      pop(`Sold ${shares} × ${stockData.symbol} @ ${fmtUSD(stockData.price)}`);
     }
-    setTrades(t => [{ date: simDate, symbol: stockData.symbol, action: orderSide, shares: orderShares, price: stockData.price, total }, ...t]);
+    setTrades(t => [{ date: simDate, symbol: stockData.symbol, action: orderSide, shares: shares, price: stockData.price, total }, ...t]);
+    setOrderShares("");
+    setOrderSide("buy");
   };
 
   // ── Portfolio ────────────────────────────────────────────────────────────────
@@ -1066,13 +1082,13 @@ export default function AppPage() {
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
                   <span className="lbl" style={{ whiteSpace: "nowrap" }}>Shares</span>
                   <div style={{ display: "flex", gap: 0, alignItems: "center", border: "1px solid var(--b1)", borderRadius: 5, background: "var(--bg)" }}>
-                    <button onClick={() => setOrderShares(Math.max(1, orderShares - 1))} style={{ padding: "4px 8px", border: "none", borderRight: "1px solid var(--b1)", background: "transparent", color: "var(--t2)", cursor: "pointer", fontSize: 12, transition: "all .12s" }} onMouseEnter={e => { e.currentTarget.style.color = "var(--t1)"; e.currentTarget.style.background = "var(--surf)"; }} onMouseLeave={e => { e.currentTarget.style.color = "var(--t2)"; e.currentTarget.style.background = "transparent"; }}>−</button>
-                    <input type="number" min="1" value={orderShares} onChange={e => setOrderShares(Math.max(1, parseInt(e.target.value) || 1))} style={{ padding: "4px 6px", border: "none", background: "transparent", fontSize: 12, width: 45, textAlign: "center" }} />
-                    <button onClick={() => setOrderShares(orderShares + 1)} style={{ padding: "4px 8px", border: "none", borderLeft: "1px solid var(--b1)", background: "transparent", color: "var(--t2)", cursor: "pointer", fontSize: 12, transition: "all .12s" }} onMouseEnter={e => { e.currentTarget.style.color = "var(--t1)"; e.currentTarget.style.background = "var(--surf)"; }} onMouseLeave={e => { e.currentTarget.style.color = "var(--t2)"; e.currentTarget.style.background = "transparent"; }}>+</button>
+                    <button onClick={() => setOrderShares(orderShares === "" ? "" : Math.max(0, parseInt(orderShares) - 1))} style={{ padding: "4px 8px", border: "none", borderRight: "1px solid var(--b1)", background: "transparent", color: "var(--t2)", cursor: "pointer", fontSize: 12, transition: "all .12s" }} onMouseEnter={e => { e.currentTarget.style.color = "var(--t1)"; e.currentTarget.style.background = "var(--surf)"; }} onMouseLeave={e => { e.currentTarget.style.color = "var(--t2)"; e.currentTarget.style.background = "transparent"; }}>−</button>
+                    <input type="number" min="0" value={orderShares} onChange={e => setOrderShares(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))} style={{ padding: "4px 6px", border: "none", background: "transparent", fontSize: 12, width: 45, textAlign: "center" }} />
+                    <button onClick={() => setOrderShares(orderShares === "" ? 1 : parseInt(orderShares) + 1)} style={{ padding: "4px 8px", border: "none", borderLeft: "1px solid var(--b1)", background: "transparent", color: "var(--t2)", cursor: "pointer", fontSize: 12, transition: "all .12s" }} onMouseEnter={e => { e.currentTarget.style.color = "var(--t1)"; e.currentTarget.style.background = "var(--surf)"; }} onMouseLeave={e => { e.currentTarget.style.color = "var(--t2)"; e.currentTarget.style.background = "transparent"; }}>+</button>
                   </div>
                 </div>
                 <div className="mono" style={{ fontSize: 10, color: "var(--t3)", marginBottom: 8 }}>
-                  Total <span style={{ color: "var(--t1)", fontWeight: 500 }}>{fmtUSD(stockData.price * orderShares)}</span>
+                  Total <span style={{ color: "var(--t1)", fontWeight: 500 }}>{orderShares === "" ? "—" : fmtUSD(stockData.price * parseInt(orderShares))}</span>
                   {curPos && <span style={{ marginLeft: 6 }}>· {curPos.shares} held</span>}
                 </div>
                 <button onClick={trade} style={{
