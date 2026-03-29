@@ -1,7 +1,88 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
+import FinancialLiteracy from "../components/FinancialLiteracy";
+
+// ─── Metric tooltip labels ─────────────────────────────────────────────────────
+const METRIC_DEFINITIONS = {
+  "Price": "Current market price per share",
+  "Cash": "Available cash to invest",
+  "Position": "Total value of your shares at current price",
+  "Shares Held": "Number of shares you own",
+  "Avg Cost": "Average price you paid per share",
+  "Unrlzd P&L": "Unrealized profit/loss on this position",
+  "Total Value": "Cash + equity value",
+  "Equity": "Total value of all stock positions",
+  "Total P&L": "Total profit or loss across all positions",
+  "52w High": "Highest price in the past 52 weeks",
+  "52w Low": "Lowest price in the past 52 weeks",
+  "Avg Vol": "Average trading volume",
+  "P/E": "Price-to-Earnings ratio",
+  "P/B": "Price-to-Book ratio",
+  "EPS": "Earnings Per Share",
+  "Beta": "Stock volatility relative to market",
+  "Div Yield": "Annual dividend as % of stock price",
+};
+
+function MetricLabel({ label, children }) {
+  const def = METRIC_DEFINITIONS[label];
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  if (!def) {
+    return children || <div className="lbl">{label}</div>;
+  }
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <div
+        className="lbl"
+        style={{ cursor: "help", borderBottom: "1px dotted var(--t3)" }}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        title={def}
+      >
+        {label}
+      </div>
+      {showTooltip && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "100%",
+            left: 0,
+            background: "var(--surf)",
+            border: "1px solid var(--b1)",
+            borderRadius: 6,
+            padding: "6px 10px",
+            marginBottom: 6,
+            fontSize: 10,
+            color: "var(--t2)",
+            maxWidth: 140,
+            zIndex: 1000,
+            whiteSpace: "normal",
+            boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+            fontFamily: "DM Sans",
+            lineHeight: 1.4,
+          }}
+        >
+          {def}
+          <div
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              width: 0,
+              height: 0,
+              borderLeft: "4px solid transparent",
+              borderRight: "4px solid transparent",
+              borderTop: "4px solid var(--surf)",
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Drag-to-resize hook (horizontal panels) ──────────────────────────────────
 function useDragResize({ initial, min, max, direction = "right" }) {
@@ -368,6 +449,7 @@ export default function AppPage() {
   const [positions,   setPositions]   = useState([]);
   const [trades,      setTrades]      = useState([]);
   const [prices,      setPrices]      = useState({});
+  const [dateRange,   setDateRange]   = useState(null);
 
   const [portfolios,   setPortfolios]   = useState([]);
   const [activePortId, setActivePortId] = useState(null);
@@ -424,7 +506,7 @@ export default function AppPage() {
   const [centerTab,    _setCenterTab]   = useState("welcome");
   const [prevTab,      setPrevTab]      = useState("welcome");
   const setCenterTab = useCallback((t) => { if (t !== centerTab) { setPrevTab(centerTab); _setCenterTab(t); } }, [centerTab]);
-  const tabIdx = { welcome: 0, analysis: 1, positions: 2, history: 3 };
+  const tabIdx = { welcome: 0, analysis: 1, positions: 2, history: 3, learning: 4 };
 
   const [showProfile,  setShowProfile]  = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
@@ -447,6 +529,27 @@ export default function AppPage() {
   const simYear   = parseInt(simDate.slice(0, 4));
   const era       = getEra(simYear);
   const suggestions = POPULAR_BY_ERA.filter(s => s.since <= simYear).slice(0, 12);
+
+  // ── Filter chart data by date range ──────────────────────────────────────────
+  const filteredChartData = useMemo(() => {
+    if (!dateRange || !chartData?.length) return chartData;
+    
+    // Map date labels to fraction of data to show (from the end)
+    const rangeFractions = {
+      "1W": 1/52,   // ~1 week
+      "1M": 1/12,   // ~1 month
+      "3M": 3/12,   // ~3 months
+      "6M": 6/12,   // ~6 months
+      "1Y": 1,      // full year
+      "All": 1.5,   // all data (with margin)
+    };
+    
+    const fraction = rangeFractions[dateRange.label] || 1;
+    const dataCount = Math.max(1, Math.ceil(chartData.length * fraction));
+    const startIdx = Math.max(0, chartData.length - dataCount);
+    
+    return chartData.slice(startIdx);
+  }, [dateRange, chartData]);
 
   // ── Search ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -677,6 +780,7 @@ export default function AppPage() {
             { id: "analysis",  label: "Trade" },
             { id: "positions", label: "Portfolio" },
             { id: "history",   label: "History" },
+            { id: "learning",  label: "Learn" },
           ].map(t => (
             <button
               key={t.id}
@@ -959,9 +1063,13 @@ export default function AppPage() {
                     }}>{s}</button>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
                   <span className="lbl" style={{ whiteSpace: "nowrap" }}>Shares</span>
-                  <input type="number" min="1" value={orderShares} onChange={e => setOrderShares(Math.max(1, parseInt(e.target.value) || 1))} style={{ fontSize: 12 }} />
+                  <div style={{ display: "flex", gap: 0, alignItems: "center", border: "1px solid var(--b1)", borderRadius: 5, background: "var(--bg)" }}>
+                    <button onClick={() => setOrderShares(Math.max(1, orderShares - 1))} style={{ padding: "4px 8px", border: "none", borderRight: "1px solid var(--b1)", background: "transparent", color: "var(--t2)", cursor: "pointer", fontSize: 12, transition: "all .12s" }} onMouseEnter={e => { e.currentTarget.style.color = "var(--t1)"; e.currentTarget.style.background = "var(--surf)"; }} onMouseLeave={e => { e.currentTarget.style.color = "var(--t2)"; e.currentTarget.style.background = "transparent"; }}>−</button>
+                    <input type="number" min="1" value={orderShares} onChange={e => setOrderShares(Math.max(1, parseInt(e.target.value) || 1))} style={{ padding: "4px 6px", border: "none", background: "transparent", fontSize: 12, width: 45, textAlign: "center" }} />
+                    <button onClick={() => setOrderShares(orderShares + 1)} style={{ padding: "4px 8px", border: "none", borderLeft: "1px solid var(--b1)", background: "transparent", color: "var(--t2)", cursor: "pointer", fontSize: 12, transition: "all .12s" }} onMouseEnter={e => { e.currentTarget.style.color = "var(--t1)"; e.currentTarget.style.background = "var(--surf)"; }} onMouseLeave={e => { e.currentTarget.style.color = "var(--t2)"; e.currentTarget.style.background = "transparent"; }}>+</button>
+                  </div>
                 </div>
                 <div className="mono" style={{ fontSize: 10, color: "var(--t3)", marginBottom: 8 }}>
                   Total <span style={{ color: "var(--t1)", fontWeight: 500 }}>{fmtUSD(stockData.price * orderShares)}</span>
@@ -970,9 +1078,9 @@ export default function AppPage() {
                 <button onClick={trade} style={{
                   width: "100%", padding: "8px 0", border: "none", borderRadius: 7, cursor: "pointer",
                   fontFamily: "DM Mono", fontSize: 11, fontWeight: 500, letterSpacing: .5, textTransform: "uppercase",
-                  background: orderSide === "buy" ? "var(--green)" : "var(--red)", color: "#fff", transition: "opacity .15s",
+                  background: orderSide === "buy" ? "var(--green)" : "var(--red)", color: "#fff", transition: "all .15s", opacity: "1",
                 }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = ".82"}
+                  onMouseEnter={e => e.currentTarget.style.opacity = ".85"}
                   onMouseLeave={e => e.currentTarget.style.opacity = "1"}
                 >
                   {orderSide === "buy" ? "Buy" : "Sell"} {stockData.symbol}
@@ -1044,121 +1152,124 @@ export default function AppPage() {
                   )}
                 </div>
 
-                {/* ── Chart — fills space above fixed-height analysis panel ── */}
-                <div style={{ flex: 1, minHeight: 0, background: "var(--surf)", borderBottom: "1px solid var(--b1)", padding: "10px 16px 8px", overflow: "hidden" }}>
-                  {loading ? (
-                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <div style={{ width: 20, height: 20, border: "2px solid var(--b1)", borderTopColor: "var(--t1)", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
-                    </div>
-                  ) : (
-                    <StockChart data={chartData} chartUp={chartUp} avgCost={curPos ? curPos.avgCost : null} />
-                  )}
-                </div>
-
-                {/* ── Analysis panel ── */}
-                <div style={{ flexShrink: 0, padding: "14px 20px", background: "var(--surf)", borderTop: "1px solid var(--b1)" }}>
-                  {stockData ? (
-                    <div style={{ display: "flex", gap: 20 }}>
-
-                      {/* Left col: market brief */}
-                      <div style={{ flex: "1 1 340px", minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--amber)", flexShrink: 0 }} />
-                          <span className="lbl">Market Brief · {MONTHS[new Date(simDate).getMonth()]} {simYear}</span>
-                          {stockData.isLive && (
-                            <span style={{
-                              display: "inline-flex", alignItems: "center", gap: 4,
-                              background: "#dcfce7", border: "1px solid #86efac",
-                              borderRadius: 20, padding: "1px 8px",
-                              fontFamily: "DM Mono", fontSize: 9, color: "#16a34a", letterSpacing: 1,
-                            }}>
-                              <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#16a34a", animation: "pulse 2s infinite" }} />
-                              LIVE
-                            </span>
-                          )}
-                        </div>
-                        <p style={{ fontFamily: "DM Sans", fontSize: 12, color: "var(--t2)", lineHeight: 1.75, marginBottom: 10 }}>
-                          {era.m}{" "}
-                          {getCompanyBrief(stockData.symbol, simYear) && <span style={{ color: "var(--t1)", fontWeight: 500 }}>{` ${getCompanyBrief(stockData.symbol, simYear)} `}</span>}
-                          <strong style={{ color: "var(--t1)", fontWeight: 600 }}>{stockData.name}</strong>{" "}
-                          is trading at {fmtUSD(stockData.price)}.{" "}
-                          <em>Risk:</em> {era.risk}{" "}
-                          <em>Opportunity:</em> {era.opp}
-                        </p>
-                        {/* Quick stat tiles */}
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                          {[
-                            { l: "Price",    v: fmtUSD(stockData.price) },
-                            { l: "Cash",     v: fmtUSD(cash) },
-                            { l: "Position", v: curPos ? fmtUSD(curPos.shares * (prices[stockData.symbol] ?? stockData.price)) : "—" },
-                            curPos           ? { l: "Shares Held", v: curPos.shares } : null,
-                            curPos           ? { l: "Avg Cost",    v: fmtUSD(curPos.avgCost) } : null,
-                            curPos           ? { l: "Unrlzd P&L",  v: fmtPnL((stockData.price - curPos.avgCost) * curPos.shares) } : null,
-                          ].filter(Boolean).map(s => (
-                            <div key={s.l} style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 7, padding: "6px 11px", minWidth: 80 }}>
-                              <div className="lbl" style={{ marginBottom: 2, fontSize: 8 }}>{s.l}</div>
-                              <div className="mono" style={{ fontSize: 11, fontWeight: 500 }}>{s.v}</div>
-                            </div>
-                          ))}
-                        </div>
+                {/* ── Scrollable content area (chart + analysis + learning) ── */}
+                <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "auto" }}>
+                  {/* ── Chart — fills space above fixed-height analysis panel ── */}
+                  <div style={{ flex: 1, minHeight: 0, background: "var(--surf)", borderBottom: "1px solid var(--b1)", padding: "10px 16px 8px", overflow: "hidden", flexShrink: 0 }}>
+                    {loading ? (
+                      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ width: 20, height: 20, border: "2px solid var(--b1)", borderTopColor: "var(--t1)", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
                       </div>
+                    ) : (
+                      <StockChart key={dateRange?.label || "all"} data={filteredChartData} chartUp={chartUp} avgCost={curPos ? curPos.avgCost : null} onDateRangeChange={setDateRange} />
+                    )}
+                  </div>
 
-                      {/* Right col: company profile */}
-                      <div style={{ flex: "0 0 220px", flexShrink: 0 }}>
-                        {(stockData.sector || stockData.industry) && (
-                          <div style={{ marginBottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            {stockData.sector && (
-                              <span style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 20, padding: "2px 9px", fontFamily: "DM Mono", fontSize: 9, color: "#1d4ed8" }}>
-                                {stockData.sector}
-                              </span>
-                            )}
-                            {stockData.industry && (
-                              <span style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 20, padding: "2px 9px", fontFamily: "DM Mono", fontSize: 9, color: "var(--t3)" }}>
-                                {stockData.industry}
+                  {/* ── Analysis panel ── */}
+                  <div style={{ flexShrink: 0, padding: "14px 20px", background: "var(--surf)", borderTop: "1px solid var(--b1)" }}>
+                    {stockData ? (
+                      <div style={{ display: "flex", gap: 20 }}>
+
+                        {/* Left col: market brief */}
+                        <div style={{ flex: "1 1 340px", minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--amber)", flexShrink: 0 }} />
+                            <span className="lbl">Market Brief · {MONTHS[new Date(simDate).getMonth()]} {simYear}</span>
+                            {stockData.isLive && (
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: 4,
+                                background: "#dcfce7", border: "1px solid #86efac",
+                                borderRadius: 20, padding: "1px 8px",
+                                fontFamily: "DM Mono", fontSize: 9, color: "#16a34a", letterSpacing: 1,
+                              }}>
+                                <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#16a34a", animation: "pulse 2s infinite" }} />
+                                LIVE
                               </span>
                             )}
                           </div>
-                        )}
-                        {stockData.description && (
-                          <p style={{ fontFamily: "DM Sans", fontSize: 11, color: "var(--t3)", lineHeight: 1.65, marginBottom: 8,
-                            display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                            {stockData.description}
+                          <p style={{ fontFamily: "DM Sans", fontSize: 12, color: "var(--t2)", lineHeight: 1.75, marginBottom: 10 }}>
+                            {era.m}{" "}
+                            {getCompanyBrief(stockData.symbol, simYear) && <span style={{ color: "var(--t1)", fontWeight: 500 }}>{` ${getCompanyBrief(stockData.symbol, simYear)} `}</span>}
+                            <strong style={{ color: "var(--t1)", fontWeight: 600 }}>{stockData.name}</strong>{" "}
+                            is trading at {fmtUSD(stockData.price)}.{" "}
+                            <em>Risk:</em> {era.risk}{" "}
+                            <em>Opportunity:</em> {era.opp}
                           </p>
-                        )}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                          {[
-                            stockData.revenue       ? { l: "Revenue",      v: stockData.revenue }       : null,
-                            stockData.grossMargin   ? { l: "Gross Margin", v: stockData.grossMargin }   : null,
-                            stockData.eps           ? { l: "EPS (TTM)",    v: stockData.eps }           : null,
-                            stockData.dividendYield ? { l: "Div Yield",    v: stockData.dividendYield } : null,
-                            stockData.returnOnEquity? { l: "ROE",          v: stockData.returnOnEquity }: null,
-                            stockData.debtToEquity  ? { l: "Debt/Eq",      v: stockData.debtToEquity }  : null,
-                            stockData.pbRatio       ? { l: "P/B Ratio",    v: stockData.pbRatio }       : null,
-                            stockData.avgVolume     ? { l: "Avg Vol",      v: stockData.avgVolume }     : null,
-                            stockData.fiftyTwoWeekHigh ? { l: "52W High",  v: stockData.fiftyTwoWeekHigh }: null,
-                            stockData.fiftyTwoWeekLow  ? { l: "52W Low",   v: stockData.fiftyTwoWeekLow } : null,
-                            stockData.employees     ? { l: "Employees",    v: stockData.employees }     : null,
-                          ].filter(Boolean).map(s => (
-                            <div key={s.l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid var(--b1)" }}>
-                              <span className="mono" style={{ fontSize: 9, color: "var(--t3)" }}>{s.l}</span>
-                              <span className="mono" style={{ fontSize: 10, fontWeight: 500 }}>{s.v}</span>
-                            </div>
-                          ))}
+                          {/* Quick stat tiles */}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                            {[
+                              { l: "Price",    v: fmtUSD(stockData.price) },
+                              { l: "Cash",     v: fmtUSD(cash) },
+                              { l: "Position", v: curPos ? fmtUSD(curPos.shares * (prices[stockData.symbol] ?? stockData.price)) : "—" },
+                              curPos           ? { l: "Shares Held", v: curPos.shares } : null,
+                              curPos           ? { l: "Avg Cost",    v: fmtUSD(curPos.avgCost) } : null,
+                              curPos           ? { l: "Unrlzd P&L",  v: fmtPnL((stockData.price - curPos.avgCost) * curPos.shares) } : null,
+                            ].filter(Boolean).map(s => (
+                              <div key={s.l} style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 7, padding: "6px 11px", minWidth: 80 }}>
+                                <MetricLabel label={s.l} />
+                                <div className="mono" style={{ fontSize: 11, fontWeight: 500, marginTop: 2 }}>{s.v}</div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
 
-                    </div>
-                  ) : (
-                    /* No grey placeholder — show nothing when no stock is selected */
-                    stockErr ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 0", color: "var(--red)" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                        </svg>
-                        <span className="mono" style={{ fontSize: 11 }}>{stockErr}</span>
+                        {/* Right col: company profile */}
+                        <div style={{ flex: "0 0 220px", flexShrink: 0 }}>
+                          {(stockData.sector || stockData.industry) && (
+                            <div style={{ marginBottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {stockData.sector && (
+                                <span style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 20, padding: "2px 9px", fontFamily: "DM Mono", fontSize: 9, color: "#1d4ed8" }}>
+                                  {stockData.sector}
+                                </span>
+                              )}
+                              {stockData.industry && (
+                                <span style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 20, padding: "2px 9px", fontFamily: "DM Mono", fontSize: 9, color: "var(--t3)" }}>
+                                  {stockData.industry}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {stockData.description && (
+                            <p style={{ fontFamily: "DM Sans", fontSize: 11, color: "var(--t3)", lineHeight: 1.65, marginBottom: 8,
+                              display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                              {stockData.description}
+                            </p>
+                          )}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                            {[
+                              stockData.revenue       ? { l: "Revenue",      v: stockData.revenue }       : null,
+                              stockData.grossMargin   ? { l: "Gross Margin", v: stockData.grossMargin }   : null,
+                              stockData.eps           ? { l: "EPS (TTM)",    v: stockData.eps }           : null,
+                              stockData.dividendYield ? { l: "Div Yield",    v: stockData.dividendYield } : null,
+                              stockData.returnOnEquity? { l: "ROE",          v: stockData.returnOnEquity }: null,
+                              stockData.debtToEquity  ? { l: "Debt/Eq",      v: stockData.debtToEquity }  : null,
+                              stockData.pbRatio       ? { l: "P/B Ratio",    v: stockData.pbRatio }       : null,
+                              stockData.avgVolume     ? { l: "Avg Vol",      v: stockData.avgVolume }     : null,
+                              stockData.fiftyTwoWeekHigh ? { l: "52W High",  v: stockData.fiftyTwoWeekHigh }: null,
+                              stockData.fiftyTwoWeekLow  ? { l: "52W Low",   v: stockData.fiftyTwoWeekLow } : null,
+                              stockData.employees     ? { l: "Employees",    v: stockData.employees }     : null,
+                            ].filter(Boolean).map(s => (
+                              <div key={s.l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid var(--b1)" }}>
+                                <span className="mono" style={{ fontSize: 9, color: "var(--t3)", position: "relative", cursor: "help" }} title={`${s.l} information`}>{s.l}</span>
+                                <span className="mono" style={{ fontSize: 10, fontWeight: 500 }}>{s.v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
                       </div>
-                    ) : null
-                  )}
+                    ) : (
+                      /* No grey placeholder — show nothing when no stock is selected */
+                      stockErr ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 0", color: "var(--red)" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                          </svg>
+                          <span className="mono" style={{ fontSize: 11 }}>{stockErr}</span>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1260,6 +1371,12 @@ export default function AppPage() {
                 )}
               </div>
             )}
+
+            {centerTab === "learning" && (
+              <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+                <FinancialLiteracy />
+              </div>
+            )}
           </main>
 
           {/* ── RIGHT SIDEBAR ── */}
@@ -1277,8 +1394,8 @@ export default function AppPage() {
               { l: "Total P&L",   v: fmtPnL(pnl),   sub: fmtPct(pnlPct), col: pnl >= 0 ? "var(--green)" : "var(--red)" },
             ].map(m => (
               <div key={m.l} style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 8, padding: "10px 12px" }}>
-                <div className="lbl" style={{ marginBottom: 4 }}>{m.l}</div>
-                <div className="mono" style={{ fontSize: m.big ? 16 : 13, fontWeight: m.big ? 600 : 400, color: m.col || "var(--t1)" }}>{m.v}</div>
+                <MetricLabel label={m.l} />
+                <div className="mono" style={{ fontSize: m.big ? 16 : 13, fontWeight: m.big ? 600 : 400, color: m.col || "var(--t1)", marginTop: 4 }}>{m.v}</div>
                 {m.sub && <div className="mono" style={{ fontSize: 9, color: m.col || "var(--t3)", marginTop: 2 }}>{m.sub}</div>}
               </div>
             ))}
@@ -1299,22 +1416,20 @@ export default function AppPage() {
                   { l: "Last Price",  v: fmtUSD(stockData.price) },
                   { l: "As Of",       v: stockData.date },
                   ...(chartData.length > 1 ? [
-                    { l: "30d High",  v: fmtUSD(Math.max(...chartData.map(d => d.high || d.close))) },
-                    { l: "30d Low",   v: fmtUSD(Math.min(...chartData.map(d => d.low  || d.close))) },
+                    { l: "52w High",  v: fmtUSD(Math.max(...chartData.map(d => d.high || d.close))) },
+                    { l: "52w Low",   v: fmtUSD(Math.min(...chartData.map(d => d.low  || d.close))) },
                     { l: "Avg Vol",   v: `${(chartData.reduce((s, d) => s + (d.volume || 0), 0) / chartData.length / 1e6).toFixed(1)}M` },
                   ] : []),
-                  stockData.fiftyTwoWeekHigh ? { l: "52w High", v: stockData.fiftyTwoWeekHigh } : null,
-                  stockData.fiftyTwoWeekLow  ? { l: "52w Low",  v: stockData.fiftyTwoWeekLow  } : null,
-                  stockData.marketCap        ? { l: "Mkt Cap",  v: stockData.marketCap         } : null,
                   stockData.peRatio          ? { l: "P/E",      v: stockData.peRatio           } : null,
                   stockData.pbRatio          ? { l: "P/B",      v: stockData.pbRatio           } : null,
                   stockData.eps              ? { l: "EPS",      v: stockData.eps               } : null,
                   stockData.beta             ? { l: "Beta",     v: stockData.beta              } : null,
                   stockData.dividendYield    ? { l: "Div Yield",v: stockData.dividendYield     } : null,
+                  stockData.marketCap        ? { l: "Mkt Cap",  v: stockData.marketCap         } : null,
                   stockData.sector           ? { l: "Sector",   v: stockData.sector            } : null,
                 ].filter(Boolean).map(s => (
                   <div key={s.l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid var(--b1)" }}>
-                    <span className="mono" style={{ fontSize: 9, color: "var(--t3)" }}>{s.l}</span>
+                    <span className="mono" style={{ fontSize: 9, color: "var(--t3)", cursor: "help", borderBottom: METRIC_DEFINITIONS[s.l] ? "1px dotted var(--t3)" : "none" }} title={METRIC_DEFINITIONS[s.l] || ""}>{s.l}</span>
                     <span className="mono" style={{ fontSize: 10, maxWidth: 110, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.v}</span>
                   </div>
                 ))}

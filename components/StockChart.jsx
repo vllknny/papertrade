@@ -7,6 +7,78 @@ import {
 const fmtUSD  = (n) => `$${(+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtK    = (n) => n >= 1000 ? `$${(n / 1000).toFixed(0)}k` : `$${n.toFixed(0)}`;
 
+// ── Metric Definitions (Financial Literacy) ────────────────────────────────────
+const METRIC_DEFINITIONS = {
+  open: { label: "Open", definition: "The price when the market opened on this day. Where buyers and sellers first met." },
+  high: { label: "High", definition: "The highest price reached during the trading day. Shows the peak buyer enthusiasm." },
+  low: { label: "Low", definition: "The lowest price reached during the trading day. The point where sellers gave up." },
+  close: { label: "Close", definition: "The final price when the market closed. Most important for tracking overall performance." },
+  volume: { label: "Volume", definition: "Total shares traded this day. Higher volume = more confidence in the price direction." },
+  price: { label: "Price", definition: "Current value per share. Buy low, sell high — but it's never that simple." },
+};
+
+// ── Tooltip with Definition Popover ────────────────────────────────────────────
+function DefinitionTooltip({ metric }) {
+  const [showDef, setShowDef] = useState(false);
+  const def = METRIC_DEFINITIONS[metric];
+  if (!def) return null;
+  
+  return (
+    <div style={{ position: "relative", display: "inline-block", cursor: "help" }}>
+      <span
+        onMouseEnter={() => setShowDef(true)}
+        onMouseLeave={() => setShowDef(false)}
+        style={{
+          borderBottom: "1px dotted var(--t3)",
+          textDecoration: "none",
+          cursor: "help",
+        }}
+      >
+        {def.label}
+      </span>
+      {showDef && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "100%",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--surf)",
+            border: "1px solid var(--b1)",
+            borderRadius: 6,
+            padding: "8px 10px",
+            marginBottom: 6,
+            fontSize: 11,
+            color: "var(--t2)",
+            maxWidth: 140,
+            zIndex: 1000,
+            whiteSpace: "normal",
+            boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+            fontFamily: "DM Sans",
+            lineHeight: 1.4,
+          }}
+        >
+          {def.definition}
+          {/* Arrow pointer */}
+          <div
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 0,
+              height: 0,
+              borderLeft: "5px solid transparent",
+              borderRight: "5px solid transparent",
+              borderTop: "5px solid var(--surf)",
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tooltips ──────────────────────────────────────────────────────────────────
 function LineTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -17,7 +89,12 @@ function LineTooltip({ active, payload, label }) {
       fontFamily: "DM Mono, monospace",
     }}>
       <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1814" }}>{fmtUSD(payload[0].value)}</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1814" }}>{fmtUSD(payload[0].value)}</div>
+      </div>
+      <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 4, paddingTop: 4, borderTop: "1px solid #f1f0ea" }}>
+        💡 Hover metrics for definitions
+      </div>
     </div>
   );
 }
@@ -32,7 +109,7 @@ function CandleTooltip({ active, payload, label }) {
     <div style={{
       background: "#fff", border: "1px solid #e2e0da", borderRadius: 7,
       padding: "9px 13px", boxShadow: "0 4px 14px rgba(0,0,0,.1)",
-      fontFamily: "DM Mono, monospace", minWidth: 120,
+      fontFamily: "DM Mono, monospace", minWidth: 140,
     }}>
       <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 6, letterSpacing: 1 }}>{label}</div>
       <div style={{ display: "grid", gridTemplateColumns: "14px 1fr", rowGap: 3, columnGap: 8, fontSize: 11 }}>
@@ -48,6 +125,9 @@ function CandleTooltip({ active, payload, label }) {
           Vol&nbsp;{(d.volume / 1e6).toFixed(2)}M
         </div>
       )}
+      <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 4, paddingTop: 4, borderTop: "1px solid #f1f0ea" }}>
+        💡 Hover definitions →
+      </div>
     </div>
   );
 }
@@ -98,6 +178,89 @@ function CandleBarShape(props) {
   );
 }
 
+// ── Quick Date Range Selector ─────────────────────────────────────────────────
+function QuickDateRangeSelector({ data, onDateRangeChange, selectedRange, onSelectRange }) {
+  if (!data?.length) return null;
+
+  const getDateRange = (days) => {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    return [startDate, endDate];
+  };
+
+  const handleRangeSelect = (days, label) => {
+    onSelectRange(label);
+    const [start, end] = getDateRange(days);
+    onDateRangeChange?.({ start, end, label });
+  };
+
+  const rangeButtons = [
+    { days: 7, label: "1W", tooltip: "Last 7 days" },
+    { days: 30, label: "1M", tooltip: "Last 30 days" },
+    { days: 90, label: "3M", tooltip: "Last 90 days" },
+    { days: 180, label: "6M", tooltip: "Last 6 months" },
+    { days: 365, label: "1Y", tooltip: "Last year" },
+    { days: null, label: "All", tooltip: "All available data" },
+  ];
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 6,
+        padding: "8px 0",
+        paddingRight: 6,
+        flexShrink: 0,
+        flexWrap: "wrap",
+        alignItems: "center",
+      }}
+    >
+      <span style={{ fontSize: 10, color: "var(--t3)", letterSpacing: 1, textTransform: "uppercase" }}>
+        Range:
+      </span>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {rangeButtons.map(({ days, label, tooltip }) => (
+          <button
+            key={label}
+            onClick={() => handleRangeSelect(days, label)}
+            title={tooltip}
+            style={{
+              padding: "4px 8px",
+              border: "1px solid var(--b1)",
+              borderRadius: 5,
+              background: selectedRange === label ? "var(--t1)" : "var(--bg)",
+              color: selectedRange === label ? "#fff" : "var(--t2)",
+              fontFamily: "DM Mono, monospace",
+              fontSize: 9,
+              cursor: "pointer",
+              transition: "all .08s",
+              letterSpacing: 0.5,
+              fontWeight: 500,
+            }}
+            onMouseEnter={(e) => {
+              if (selectedRange !== label) {
+                e.currentTarget.style.borderColor = "var(--b2)";
+                e.currentTarget.style.color = "var(--t1)";
+                e.currentTarget.style.background = "var(--surf)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (selectedRange !== label) {
+                e.currentTarget.style.borderColor = "var(--b1)";
+                e.currentTarget.style.color = "var(--t2)";
+                e.currentTarget.style.background = "var(--bg)";
+              }
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Mode toggle ───────────────────────────────────────────────────────────────
 function ModeToggle({ mode, onChange }) {
   return (
@@ -125,8 +288,9 @@ function ModeToggle({ mode, onChange }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function StockChart({ data, chartUp, avgCost }) {
+export default function StockChart({ data, chartUp, avgCost, onDateRangeChange }) {
   const [mode, setMode] = useState("line");
+  const [selectedRange, setSelectedRange] = useState(null);
 
   const chartData = useMemo(() => {
     if (!data?.length) return [];
@@ -205,12 +369,15 @@ export default function StockChart({ data, chartUp, avgCost }) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Toggle */}
-      {hasOHLC && (
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingRight: 6, paddingBottom: 4, flexShrink: 0 }}>
-          <ModeToggle mode={activeMode} onChange={setMode} />
-        </div>
-      )}
+      {/* Controls */}
+      <div style={{ flexShrink: 0, paddingRight: 6, paddingBottom: 4 }}>
+        <QuickDateRangeSelector data={chartData} onDateRangeChange={onDateRangeChange} selectedRange={selectedRange} onSelectRange={setSelectedRange} />
+        {hasOHLC && (
+          <div style={{ display: "flex", justifyContent: "flex-end", paddingBottom: 4 }}>
+            <ModeToggle mode={activeMode} onChange={setMode} />
+          </div>
+        )}
+      </div>
 
       <div style={{ flex: 1, minHeight: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
@@ -238,6 +405,7 @@ export default function StockChart({ data, chartUp, avgCost }) {
                 type="monotone" dataKey="close"
                 stroke={lineColor} strokeWidth={2}
                 dot={false} activeDot={{ r: 4, fill: lineColor, strokeWidth: 0 }}
+                isAnimationActive={false}
               />
             </ComposedChart>
           )}
