@@ -13,8 +13,18 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
 
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } });
-  if (!user) return res.status(404).json({ error: "User not found" });
+  const user = await prisma.user.upsert({
+    where: { email: session.user.email },
+    update: {
+      name: session.user.name || undefined,
+      image: session.user.image || undefined,
+    },
+    create: {
+      email: session.user.email,
+      name: session.user.name || null,
+      image: session.user.image || null,
+    },
+  });
 
   // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === "GET") {
@@ -30,6 +40,10 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     const { simDate, cash, positions = [], trades = [] } = req.body;
 
+    if (!simDate || typeof cash !== "number") {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
     // Upsert the portfolio row
     const portfolio = await prisma.portfolio.upsert({
       where: {
@@ -42,37 +56,38 @@ export default async function handler(req, res) {
       create: { userId: user.id, simDate, cash },
     });
 
-    // Sync positions: delete all then re-insert
-    await prisma.position.deleteMany({ where: { portfolioId: portfolio.id } });
-    if (positions.length > 0) {
-      await prisma.position.createMany({
-        data: positions.map((p) => ({
-          portfolioId: portfolio.id,
-          symbol: p.symbol,
-          name: p.name,
-          shares: p.shares,
-          avgCost: p.avgCost,
-        })),
-      });
-    }
+    await prisma.$transaction(async (tx) => {
+      // Sync positions: replace all for the active portfolio.
+      await tx.position.deleteMany({ where: { portfolioId: portfolio.id } });
+      if (positions.length > 0) {
+        await tx.position.createMany({
+          data: positions.map((p) => ({
+            portfolioId: portfolio.id,
+            symbol: p.symbol,
+            name: p.name,
+            shares: Number(p.shares),
+            avgCost: Number(p.avgCost),
+          })),
+        });
+      }
 
-    // Append any new trades (deduplicated by checking existing count)
-    const existingCount = await prisma.trade.count({ where: { portfolioId: portfolio.id } });
-    const newTrades = trades.slice(0, trades.length - existingCount);
-    if (newTrades.length > 0) {
-      await prisma.trade.createMany({
-        data: newTrades.map((t) => ({
-          portfolioId: portfolio.id,
-          userId: user.id,
-          date: t.date,
-          symbol: t.symbol,
-          action: t.action,
-          shares: t.shares,
-          price: t.price,
-          total: t.total,
-        })),
-      });
-    }
+      // Keep trade history aligned with client state.
+      await tx.trade.deleteMany({ where: { portfolioId: portfolio.id } });
+      if (trades.length > 0) {
+        await tx.trade.createMany({
+          data: trades.map((t) => ({
+            portfolioId: portfolio.id,
+            userId: user.id,
+            date: t.date,
+            symbol: t.symbol,
+            action: t.action,
+            shares: Number(t.shares),
+            price: Number(t.price),
+            total: Number(t.total),
+          })),
+        });
+      }
+    });
 
     return res.status(200).json({ ok: true, portfolioId: portfolio.id });
   }
