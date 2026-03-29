@@ -36,6 +36,10 @@ body {
   100%     { opacity: 0; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -234,22 +238,38 @@ hr { border: none; border-top: 1px solid var(--b1); }
   align-items: center;
   justify-content: center;
   animation: fadeUp .25s ease;
+  /* Prevent any layout shift behind the overlay */
+  pointer-events: all;
 }
 .tutorial-card {
   background: var(--surf);
   border-radius: 16px;
   width: 580px;
   max-width: 94vw;
+  /* Fixed height so the card never resizes as steps change */
+  height: 560px;
+  max-height: 92vh;
   box-shadow: 0 24px 60px rgba(0,0,0,.18);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Prevent the card from affecting page layout */
+  position: relative;
+}
+.tutorial-body {
+  flex: 1;
+  overflow-y: auto;
 }
 .tutorial-header {
   background: var(--t1);
   padding: 28px 32px 24px;
   position: relative;
+  flex-shrink: 0;
 }
 .tutorial-body {
   padding: 28px 32px 24px;
+  flex: 1;
+  overflow-y: auto;
 }
 .tutorial-footer {
   padding: 16px 32px 24px;
@@ -257,6 +277,7 @@ hr { border: none; border-top: 1px solid var(--b1); }
   align-items: center;
   justify-content: space-between;
   border-top: 1px solid var(--b1);
+  flex-shrink: 0;
 }
 .tutorial-step-dot {
   width: 7px;

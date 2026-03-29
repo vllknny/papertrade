@@ -39,20 +39,17 @@ export default function LoginPage() {
       {/* ── LEFT: Hero ── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "52px 72px", justifyContent: "center" }}>
 
-        {/* Brand — "Paper Trading" pill sits at the baseline of "Anchor" */}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 56 }}>
-          {/* logo sits slightly above baseline so we use a wrapper */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="Anchor" style={{ width: 36, height: 36, objectFit: "contain" }} />
-            <span style={{ fontFamily: "Playfair Display, serif", fontSize: 24, fontWeight: 700, letterSpacing: -.5 }}>Anchor</span>
-          </div>
-          {/* Pill — baseline-aligned with the word "Anchor" */}
+        {/* Brand — logo on top, "Anchor" below it, "Paper Trading" stacked under */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, marginBottom: 52 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Anchor" style={{ width: 42, height: 42, objectFit: "contain" }} />
+          <span style={{ fontFamily: "Playfair Display, serif", fontSize: 26, fontWeight: 700, letterSpacing: -.5, lineHeight: 1 }}>
+            Anchor
+          </span>
           <span style={{
             fontFamily: "DM Mono, monospace", fontSize: 9, letterSpacing: 2.5, textTransform: "uppercase",
             color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a",
-            padding: "3px 10px", borderRadius: 20,
-            position: "relative", top: "-1px",   /* fine-tune to sit at cap-height baseline */
+            padding: "3px 10px", borderRadius: 20, marginTop: 2,
           }}>Paper Trading</span>
         </div>
 
@@ -88,10 +85,7 @@ export default function LoginPage() {
 
         {/* Ticker tape */}
         <div style={{ marginTop: 52, overflow: "hidden", maxWidth: 520 }}>
-          <div style={{
-            display: "inline-flex", gap: 8,
-            animation: "loginTicker 22s linear infinite", whiteSpace: "nowrap",
-          }}>
+          <div style={{ display: "inline-flex", gap: 8, animation: "loginTicker 22s linear infinite", whiteSpace: "nowrap" }}>
             {[...TICKERS, ...TICKERS].map((t, i) => {
               const up = t.startsWith("+");
               return (
@@ -100,9 +94,7 @@ export default function LoginPage() {
                   color: up ? "var(--green)" : "var(--red)",
                   background: up ? "#dcfce7" : "#fee2e2",
                   padding: "3px 8px", borderRadius: 5, flexShrink: 0,
-                }}>
-                  {t.slice(1)}
-                </span>
+                }}>{t.slice(1)}</span>
               );
             })}
           </div>

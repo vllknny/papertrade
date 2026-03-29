@@ -3,9 +3,9 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
 
-// ─── Drag-to-resize hook ──────────────────────────────────────────────────────
+// ─── Drag-to-resize hook (horizontal panels) ──────────────────────────────────
 function useDragResize({ initial, min, max, direction = "right" }) {
-  const [size, setSize] = useState(initial);
+  const [size, setSize]   = useState(initial);
   const dragging  = useRef(false);
   const startX    = useRef(0);
   const startSize = useRef(0);
@@ -15,13 +15,10 @@ function useDragResize({ initial, min, max, direction = "right" }) {
     dragging.current  = true;
     startX.current    = e.clientX;
     startSize.current = size;
-
     const onMove = (ev) => {
       if (!dragging.current) return;
       const delta = ev.clientX - startX.current;
-      const next  = direction === "right"
-        ? startSize.current + delta
-        : startSize.current - delta;
+      const next  = direction === "right" ? startSize.current + delta : startSize.current - delta;
       setSize(Math.min(max, Math.max(min, next)));
     };
     const onUp = () => {
@@ -33,16 +30,45 @@ function useDragResize({ initial, min, max, direction = "right" }) {
     window.addEventListener("mouseup", onUp);
   }, [size, min, max, direction]);
 
-  const handleProps = {
-    onMouseDown,
-    style: {
-      position: "absolute", top: 0, bottom: 0, width: 6,
-      cursor: "col-resize", zIndex: 20, background: "transparent",
-      ...(direction === "right" ? { right: -3 } : { left: -3 }),
-    },
-  };
+  return [size, { onMouseDown, style: {
+    position: "absolute", top: 0, bottom: 0, width: 6, zIndex: 20,
+    cursor: "col-resize", background: "transparent",
+    ...(direction === "right" ? { right: -3 } : { left: -3 }),
+  }}];
+}
 
-  return [size, handleProps];
+// ─── Drag-to-resize hook (vertical — for analysis panel height) ───────────────
+function useVerticalDragResize({ initial, min, max }) {
+  const [size, setSize]   = useState(initial);
+  const dragging  = useRef(false);
+  const startY    = useRef(0);
+  const startSize = useRef(0);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    dragging.current  = true;
+    startY.current    = e.clientY;
+    startSize.current = size;
+    const onMove = (ev) => {
+      if (!dragging.current) return;
+      // dragging DOWN increases analysis panel (graph shrinks), UP shrinks it
+      const delta = ev.clientY - startY.current;
+      setSize(Math.min(max, Math.max(min, startSize.current + delta)));
+    };
+    const onUp = () => {
+      dragging.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [size, min, max]);
+
+  return [size, { onMouseDown, style: {
+    height: 6, cursor: "row-resize", zIndex: 20,
+    background: "transparent", width: "100%",
+    flexShrink: 0,
+  }}];
 }
 
 const StockChart = dynamic(() => import("../components/StockChart"), {
@@ -117,6 +143,143 @@ const fmtShrt = (n) => `$${(+n).toLocaleString("en-US", { minimumFractionDigits:
 const fmtPct  = (n) => `${n >= 0 ? "+" : ""}${(+n).toFixed(2)}%`;
 const fmtPnL  = (n) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// ─── Enhanced date picker with month/year nav ─────────────────────────────────
+function SimDatePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  // Parse current value
+  const [year, month, day] = value.split("-").map(Number);
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const setYear  = (y) => onChange(`${y}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`);
+  const setMonth = (m) => {
+    // Clamp day to valid range for the new month
+    const max = new Date(year, m, 0).getDate();
+    const d   = Math.min(day, max);
+    onChange(`${year}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
+  };
+  const setDay   = (d) => onChange(`${year}-${String(month).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const Y_MIN = 2000, Y_MAX = 2024;
+  const prevMonth = () => {
+    if (month === 1) { if (year > Y_MIN) { onChange(`${year-1}-12-${String(day).padStart(2,"0")}`); } }
+    else setMonth(month - 1);
+  };
+  const nextMonth = () => {
+    if (month === 12) { if (year < Y_MAX) { onChange(`${year+1}-01-${String(day).padStart(2,"0")}`); } }
+    else setMonth(month + 1);
+  };
+
+  const displayDate = `${MONTHS[month-1]} ${day}, ${year}`;
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      {/* Trigger button */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: "100%", background: "var(--surf)", border: "1px solid var(--b1)",
+          borderRadius: "var(--r)", padding: "8px 11px", cursor: "pointer",
+          fontFamily: "DM Mono, monospace", fontSize: 12, color: "var(--t1)",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          transition: "border .15s",
+        }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = "var(--b2)"}
+        onMouseLeave={e => e.currentTarget.style.borderColor = "var(--b1)"}
+      >
+        <span>{displayDate}</span>
+        <span style={{ fontSize: 10, color: "var(--t3)" }}>▾</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 200,
+          background: "var(--surf)", border: "1px solid var(--b1)", borderRadius: 10,
+          boxShadow: "0 8px 24px rgba(0,0,0,.12)", padding: "14px 12px",
+          animation: "fadeUp .15s ease",
+        }}>
+          {/* Month navigation */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <button onClick={prevMonth} style={navBtnStyle}>‹</button>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>
+                {MONTHS[month-1]} {year}
+              </div>
+            </div>
+            <button onClick={nextMonth} style={navBtnStyle}>›</button>
+          </div>
+
+          {/* Day grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 10 }}>
+            {["S","M","T","W","T","F","S"].map((d,i) => (
+              <div key={i} style={{ textAlign: "center", fontFamily: "DM Mono, monospace", fontSize: 8, color: "var(--t3)", paddingBottom: 4, letterSpacing: 1 }}>{d}</div>
+            ))}
+            {/* Leading blanks */}
+            {Array.from({ length: new Date(year, month - 1, 1).getDay() }).map((_, i) => <div key={"b"+i} />)}
+            {/* Days */}
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => (
+              <button key={d} onClick={() => { setDay(d); setOpen(false); }} style={{
+                width: "100%", aspectRatio: "1", border: "none", borderRadius: 5, cursor: "pointer",
+                fontFamily: "DM Mono, monospace", fontSize: 10,
+                background: d === day ? "var(--t1)" : "transparent",
+                color: d === day ? "#fff" : "var(--t2)",
+                transition: "all .1s",
+              }}
+              onMouseEnter={e => { if (d !== day) e.currentTarget.style.background = "var(--bg)"; }}
+              onMouseLeave={e => { if (d !== day) e.currentTarget.style.background = "transparent"; }}
+              >{d}</button>
+            ))}
+          </div>
+
+          {/* Year + Month quick selectors */}
+          <div style={{ borderTop: "1px solid var(--b1)", paddingTop: 10 }}>
+            <div style={{ fontFamily: "DM Mono, monospace", fontSize: 9, color: "var(--t3)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Quick jump</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {/* Year buttons */}
+              {[2000,2004,2008,2012,2016,2020,2024].map(y => (
+                <button key={y} onClick={() => setYear(y)} style={{
+                  padding: "3px 7px", border: `1px solid ${y === year ? "var(--t1)" : "var(--b1)"}`,
+                  borderRadius: 5, cursor: "pointer", fontFamily: "DM Mono, monospace", fontSize: 9,
+                  background: y === year ? "var(--t1)" : "var(--bg)",
+                  color: y === year ? "#fff" : "var(--t2)",
+                  transition: "all .12s",
+                }}>{y}</button>
+              ))}
+            </div>
+            {/* Month quick row */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 3 }}>
+              {MONTHS.map((m, i) => (
+                <button key={m} onClick={() => setMonth(i+1)} style={{
+                  padding: "3px 0", border: `1px solid ${i+1 === month ? "var(--t1)" : "var(--b1)"}`,
+                  borderRadius: 5, cursor: "pointer", fontFamily: "DM Mono, monospace", fontSize: 9,
+                  background: i+1 === month ? "var(--t1)" : "var(--bg)",
+                  color: i+1 === month ? "#fff" : "var(--t2)",
+                  transition: "all .12s",
+                }}>{m}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const navBtnStyle = {
+  width: 26, height: 26, border: "1px solid var(--b1)", borderRadius: 6,
+  background: "var(--bg)", cursor: "pointer", fontSize: 14, color: "var(--t2)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontFamily: "DM Sans",
+};
+
 // ─── Welcome screen ───────────────────────────────────────────────────────────
 function WelcomeScreen({ onStart, onTutorial, simYear, userName }) {
   return (
@@ -160,19 +323,24 @@ function WelcomeScreen({ onStart, onTutorial, simYear, userName }) {
             onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--b2)"; e.currentTarget.style.color = "var(--t1)"; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--b1)"; e.currentTarget.style.color = "var(--t2)"; }}
           >
-            📖 How it works
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:6}}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            How it works
           </button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, textAlign: "left" }}>
           {[
-            { icon: "🕰", title: "Time Travel", desc: "Set any simulation date from 2000 to 2024 and trade with real historical prices." },
-            { icon: "📊", title: "Real Market Data", desc: "Historical OHLCV data from Yahoo Finance. No fabricated prices." },
-            { icon: "🧠", title: "Era Intelligence", desc: "Market context calibrated to your chosen period — only events that had occurred." },
-            { icon: "💼", title: "Full Portfolio", desc: "Track positions, P&L, and trade history across your session." },
+            { iconPath: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", title: "Time Travel", desc: "Set any simulation date from 2000 to 2024 and trade with real historical prices." },
+            { iconPath: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", title: "Real Market Data", desc: "Historical OHLCV data from Yahoo Finance. No fabricated prices." },
+            { iconPath: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z", title: "Era Intelligence", desc: "Market context calibrated to your chosen period — only events that had occurred." },
+            { iconPath: "M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zm-9 5a2 2 0 104 0 2 2 0 00-4 0z", title: "Full Portfolio", desc: "Track positions, P&L, and trade history across your session." },
           ].map(f => (
             <div key={f.title} style={{ background: "var(--surf)", border: "1px solid var(--b1)", borderRadius: 10, padding: "16px 18px" }}>
-              <div style={{ fontSize: 22, marginBottom: 8 }}>{f.icon}</div>
+              <div style={{ marginBottom: 8 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d={f.iconPath} />
+                </svg>
+              </div>
               <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "var(--t1)", marginBottom: 4 }}>{f.title}</div>
               <div style={{ fontFamily: "DM Sans", fontSize: 12, color: "var(--t2)", lineHeight: 1.6 }}>{f.desc}</div>
             </div>
@@ -189,27 +357,24 @@ export default function AppPage() {
   const router = useRouter();
   const isGuest = router.query.guest === "true";
 
-  // Redirect to login if not authenticated and not guest
   useEffect(() => {
-    if (status === "unauthenticated" && !isGuest) {
-      router.replace("/");
-    }
+    if (status === "unauthenticated" && !isGuest) router.replace("/");
   }, [status, isGuest, router]);
 
-  const [simDate,    setSimDate]    = useState("2011-10-15");
-  const [cash,       setCash]       = useState(STARTING_CASH);
-  const [positions,  setPositions]  = useState([]);
-  const [trades,     setTrades]     = useState([]);
-  const [prices,     setPrices]     = useState({});
+  const [simDate,     setSimDate]     = useState("2011-10-15");
+  const [cash,        setCash]        = useState(STARTING_CASH);
+  const [positions,   setPositions]   = useState([]);
+  const [trades,      setTrades]      = useState([]);
+  const [prices,      setPrices]      = useState({});
 
-  const [query,      setQuery]      = useState("");
-  const [results,    setResults]    = useState([]);
-  const [showDrop,   setShowDrop]   = useState(false);
+  const [query,       setQuery]       = useState("");
+  const [results,     setResults]     = useState([]);
+  const [showDrop,    setShowDrop]    = useState(false);
   const [selectedSym, setSelectedSym] = useState(null);
-  const [stockData,  setStockData]  = useState(null);
-  const [chartData,  setChartData]  = useState([]);
-  const [loading,    setLoading]    = useState(false);
-  const [stockErr,   setStockErr]   = useState("");
+  const [stockData,   setStockData]   = useState(null);
+  const [chartData,   setChartData]   = useState([]);
+  const [loading,     setLoading]     = useState(false);
+  const [stockErr,    setStockErr]    = useState("");
 
   const [orderShares, setOrderShares] = useState(1);
   const [orderSide,   setOrderSide]   = useState("buy");
@@ -221,9 +386,13 @@ export default function AppPage() {
 
   const profileRef = useRef(null);
 
-  // ── Resizable sidebars ────────────────────────────────────────────────────
-  const [leftW,  leftHandleProps]  = useDragResize({ initial: 218, min: 160, max: 340, direction: "right" });
-  const [rightW, rightHandleProps] = useDragResize({ initial: 238, min: 180, max: 360, direction: "left" });
+  // ── Resizable sidebars (horizontal) ───────────────────────────────────────
+  const [leftW,  leftHandleProps]  = useDragResize({ initial: 224, min: 170, max: 340, direction: "right" });
+  const [rightW, rightHandleProps] = useDragResize({ initial: 242, min: 190, max: 360, direction: "left" });
+
+  // ── Resizable analysis panel (vertical) ───────────────────────────────────
+  // analysisPanelH controls the ANALYSIS section height; graph takes the rest
+  const [analysisPanelH, analysisHandleProps] = useVerticalDragResize({ initial: 160, min: 80, max: 360 });
 
   useEffect(() => {
     const h = (e) => { if (profileRef.current && !profileRef.current.contains(e.target)) setShowProfile(false); };
@@ -233,11 +402,11 @@ export default function AppPage() {
 
   const pop = (msg, type = "ok") => { setFlash({ msg, type }); setTimeout(() => setFlash(null), 3000); };
 
-  const simYear = parseInt(simDate.slice(0, 4));
-  const era = getEra(simYear);
+  const simYear   = parseInt(simDate.slice(0, 4));
+  const era       = getEra(simYear);
   const suggestions = POPULAR_BY_ERA.filter(s => s.since <= simYear).slice(0, 12);
 
-  // ── Search ──────────────────────────────────────────────────────────────
+  // ── Search ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(async () => {
       if (!query) { setResults([]); setShowDrop(false); return; }
@@ -255,7 +424,7 @@ export default function AppPage() {
     return () => clearTimeout(t);
   }, [query, simYear]);
 
-  // ── Load stock ──────────────────────────────────────────────────────────
+  // ── Load stock ──────────────────────────────────────────────────────────────
   const loadStock = useCallback(async (sym, date) => {
     setLoading(true); setStockData(null); setChartData([]); setStockErr("");
     try {
@@ -280,7 +449,7 @@ export default function AppPage() {
 
   useEffect(() => { if (selectedSym) loadStock(selectedSym, simDate); }, [simDate]); // eslint-disable-line
 
-  // ── Trade ───────────────────────────────────────────────────────────────
+  // ── Trade ───────────────────────────────────────────────────────────────────
   const trade = () => {
     if (!stockData || orderShares <= 0) return;
     const total = stockData.price * orderShares;
@@ -305,7 +474,7 @@ export default function AppPage() {
     setTrades(t => [{ date: simDate, symbol: stockData.symbol, action: orderSide, shares: orderShares, price: stockData.price, total }, ...t]);
   };
 
-  // ── Portfolio ────────────────────────────────────────────────────────────
+  // ── Portfolio ────────────────────────────────────────────────────────────────
   const equity  = positions.reduce((s, p) => s + p.shares * (prices[p.symbol] ?? p.avgCost), 0);
   const total   = cash + equity;
   const pnl     = total - STARTING_CASH;
@@ -347,18 +516,24 @@ export default function AppPage() {
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 18px", boxShadow: "var(--sh)", position: "relative", zIndex: 50, flexShrink: 0,
       }}>
-        {/* Brand with logo */}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 0, cursor: "pointer" }} onClick={() => setCenterTab("welcome")}>
-          {/* logo + wordmark grouped so logo stays centered next to text */}
-          <div style={{ display: "flex", alignItems: "center", gap: 9, marginRight: 8 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="Anchor" style={{ width: 28, height: 28, objectFit: "contain" }} />
-            <span style={{ fontFamily: "Playfair Display, serif", fontSize: 20, fontWeight: 700, letterSpacing: -.5, color: "var(--t1)" }}>
+        {/* Brand — logo + "Anchor" + "Paper Trading" stacked */}
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+          onClick={() => setCenterTab("welcome")}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Anchor" style={{ width: 28, height: 28, objectFit: "contain" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 0, lineHeight: 1 }}>
+            <span style={{ fontFamily: "Playfair Display, serif", fontSize: 18, fontWeight: 700, letterSpacing: -.5, color: "var(--t1)", lineHeight: 1.1 }}>
               Anchor
             </span>
+            <span style={{
+              fontFamily: "DM Mono, monospace", fontSize: 8, letterSpacing: 2, textTransform: "uppercase",
+              color: "#92400e", lineHeight: 1,
+            }}>
+              Paper Trading
+            </span>
           </div>
-          {/* Pill sits at the cap-height baseline of "Anchor" */}
-          <span className="lbl" style={{ letterSpacing: 2, position: "relative", top: "-1px" }}>Paper Trading</span>
         </div>
 
         {/* Nav tabs */}
@@ -386,7 +561,7 @@ export default function AppPage() {
           ))}
         </div>
 
-        {/* Right: SIM + Profile */}
+        {/* Right: SIM year + tutorial + profile */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{
             background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 6,
@@ -405,9 +580,7 @@ export default function AppPage() {
             }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--b2)"; e.currentTarget.style.color = "var(--t1)"; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--b1)"; e.currentTarget.style.color = "var(--t2)"; }}
-          >
-            ?
-          </button>
+          >?</button>
 
           {/* Profile */}
           <div ref={profileRef} style={{ position: "relative" }}>
@@ -425,7 +598,7 @@ export default function AppPage() {
               {userImg
                 /* eslint-disable-next-line @next/next/no-img-element */
                 ? <img src={userImg} alt={userName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                : <span style={{ fontSize: 15, color: "var(--t2)" }}>👤</span>
+                : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               }
             </button>
 
@@ -435,7 +608,9 @@ export default function AppPage() {
                   {userImg
                     /* eslint-disable-next-line @next/next/no-img-element */
                     ? <img src={userImg} alt="" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-                    : <div style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>👤</div>
+                    : <div style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                      </div>
                   }
                   <div>
                     <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>{userName || "Guest"}</div>
@@ -444,14 +619,18 @@ export default function AppPage() {
                 </div>
 
                 {[
-                  { icon: "🏠", label: "Home",       action: () => { setCenterTab("welcome");   setShowProfile(false); } },
-                  { icon: "📊", label: "Trade",       action: () => { setCenterTab("analysis");  setShowProfile(false); } },
-                  { icon: "💼", label: "Portfolio",   action: () => { setCenterTab("positions"); setShowProfile(false); } },
-                  { icon: "📋", label: "History",     action: () => { setCenterTab("history");   setShowProfile(false); } },
-                  { icon: "📖", label: "Tutorial",    action: () => { setShowTutorial(true);     setShowProfile(false); } },
+                  { iconPath: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z",  label: "Home",       action: () => { setCenterTab("welcome");   setShowProfile(false); } },
+                  { iconPath: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", label: "Trade",       action: () => { setCenterTab("analysis");  setShowProfile(false); } },
+                  { iconPath: "M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zm-9 5a2 2 0 104 0 2 2 0 00-4 0z", label: "Portfolio",   action: () => { setCenterTab("positions"); setShowProfile(false); } },
+                  { iconPath: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", label: "History",     action: () => { setCenterTab("history");   setShowProfile(false); } },
+                  { iconPath: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253", label: "Tutorial",    action: () => { setShowTutorial(true);     setShowProfile(false); } },
                 ].map(item => (
                   <button key={item.label} className="profile-menu-item" onClick={item.action}>
-                    <span className="profile-menu-icon">{item.icon}</span> {item.label}
+                    <span className="profile-menu-icon">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <path d={item.iconPath} />
+                      </svg>
+                    </span> {item.label}
                   </button>
                 ))}
 
@@ -475,7 +654,11 @@ export default function AppPage() {
                       pop("Portfolio reset");
                     }}
                   >
-                    <span className="profile-menu-icon">🔄</span> Reset Portfolio
+                    <span className="profile-menu-icon">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                      </svg>
+                    </span> Reset Portfolio
                   </button>
                   {!isGuest && (
                     <button
@@ -483,7 +666,11 @@ export default function AppPage() {
                       style={{ color: "var(--t2)" }}
                       onClick={() => signOut({ callbackUrl: "/" })}
                     >
-                      <span className="profile-menu-icon">↩</span> Sign Out
+                      <span className="profile-menu-icon">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>
+                        </svg>
+                      </span> Sign Out
                     </button>
                   )}
                   {isGuest && (
@@ -492,7 +679,11 @@ export default function AppPage() {
                       style={{ color: "var(--t2)" }}
                       onClick={() => router.push("/")}
                     >
-                      <span className="profile-menu-icon">↩</span> Sign In
+                      <span className="profile-menu-icon">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/>
+                        </svg>
+                      </span> Sign In
                     </button>
                   )}
                 </div>
@@ -505,30 +696,33 @@ export default function AppPage() {
       {/* ══════ MAIN ══════ */}
       <div style={{ display: "flex", height: "calc(100vh - 52px)", overflow: "hidden" }}>
 
-        {/* ════ LEFT ════ */}
-        <aside style={{ width: leftW, flexShrink: 0, borderRight: "1px solid var(--b1)", background: "var(--surf)", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-          {/* Drag handle */}
+        {/* ════ LEFT SIDEBAR ════ */}
+        <aside style={{
+          width: leftW, flexShrink: 0, borderRight: "1px solid var(--b1)",
+          background: "var(--surf)", display: "flex", flexDirection: "column",
+          overflow: "hidden", position: "relative",
+        }}>
           <div {...leftHandleProps} />
 
-
-          {/* Date */}
-          <div style={{ padding: "13px 13px 11px", borderBottom: "1px solid var(--b1)" }}>
-            <div className="lbl" style={{ marginBottom: 7 }}>Simulation Date</div>
-            <input type="date" value={simDate} min="2000-01-01" max="2024-12-31" onChange={e => setSimDate(e.target.value)} style={{ fontSize: 12 }} />
+          {/* ── Section: Date ── */}
+          <div style={{ padding: "14px 14px 12px", borderBottom: "1px solid var(--b1)" }}>
+            <div className="lbl" style={{ marginBottom: 8 }}>Simulation Date</div>
+            <SimDatePicker value={simDate} onChange={setSimDate} />
           </div>
 
-          {/* Search */}
-          <div style={{ padding: "11px 13px 10px", borderBottom: "1px solid var(--b1)", position: "relative" }}>
-            <div className="lbl" style={{ marginBottom: 7 }}>Stock Search</div>
+          {/* ── Section: Search ── */}
+          <div style={{ padding: "12px 14px 12px", borderBottom: "1px solid var(--b1)", position: "relative" }}>
+            <div className="lbl" style={{ marginBottom: 8 }}>Stock Search</div>
             <input
               type="text" placeholder="Ticker or company…" value={query}
               onChange={e => setQuery(e.target.value)}
               onFocus={() => results.length && setShowDrop(true)}
               onBlur={() => setTimeout(() => setShowDrop(false), 150)}
+              style={{ fontSize: 12 }}
             />
             {showDrop && results.length > 0 && (
               <div style={{
-                position: "absolute", top: "calc(100% - 4px)", left: 13, right: 13, zIndex: 100,
+                position: "absolute", top: "calc(100% - 4px)", left: 14, right: 14, zIndex: 100,
                 background: "var(--surf)", border: "1px solid var(--b1)", borderRadius: 8,
                 boxShadow: "var(--shm)", maxHeight: 180, overflowY: "auto", animation: "fadeUp .15s ease",
               }}>
@@ -545,7 +739,7 @@ export default function AppPage() {
               </div>
             )}
             <div style={{ marginTop: 10 }}>
-              <div className="lbl" style={{ marginBottom: 6 }}>Popular in {simYear}</div>
+              <div className="lbl" style={{ marginBottom: 7 }}>Popular in {simYear}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                 {suggestions.map(s => (
                   <button key={s.symbol} className="suggest-chip" onClick={() => pickSym(s.symbol)}>{s.symbol}</button>
@@ -554,15 +748,15 @@ export default function AppPage() {
             </div>
           </div>
 
-          {/* Positions header */}
-          <div style={{ padding: "9px 13px 5px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span className="lbl">Portfolios</span>
-            <button style={{ background: "none", border: "1px solid var(--b1)", borderRadius: 5, width: 22, height: 22, cursor: "pointer", fontSize: 14, color: "var(--t2)", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+          {/* ── Section: Positions ── */}
+          <div style={{ padding: "10px 14px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span className="lbl">Positions</span>
+            <span className="mono" style={{ fontSize: 9, color: "var(--t3)" }}>{positions.length} open</span>
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: "0 10px" }}>
             {positions.length === 0 ? (
-              <div className="mono" style={{ padding: "12px 4px", fontSize: 10, color: "var(--t3)", textAlign: "center" }}>No positions yet</div>
+              <div className="mono" style={{ padding: "14px 4px", fontSize: 10, color: "var(--t3)", textAlign: "center" }}>No positions yet</div>
             ) : positions.map(p => {
               const px  = prices[p.symbol] ?? p.avgCost;
               const gn  = (px - p.avgCost) * p.shares;
@@ -593,8 +787,8 @@ export default function AppPage() {
 
           <hr />
 
-          {/* Order panel */}
-          <div style={{ padding: "12px 13px", flexShrink: 0 }}>
+          {/* ── Section: Order panel ── */}
+          <div style={{ padding: "12px 14px", flexShrink: 0 }}>
             {stockData ? (
               <>
                 <div style={{ marginBottom: 9 }}>
@@ -660,17 +854,19 @@ export default function AppPage() {
             )}
 
             {centerTab === "analysis" && (
-              <>
-                <div style={{ background: "var(--surf)", borderBottom: "1px solid var(--b1)", padding: "16px 20px 14px", flexShrink: 0 }}>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+                {/* ── Stock header row ── */}
+                <div style={{ background: "var(--surf)", borderBottom: "1px solid var(--b1)", padding: "14px 20px 10px", flexShrink: 0 }}>
                   {stockData ? (
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
                         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                          <span className="serif" style={{ fontSize: 28, fontWeight: 700, letterSpacing: -.5 }}>{stockData.symbol}</span>
-                          <span style={{ fontSize: 14, color: "var(--t2)" }}>{stockData.name}</span>
+                          <span className="serif" style={{ fontSize: 26, fontWeight: 700, letterSpacing: -.5 }}>{stockData.symbol}</span>
+                          <span style={{ fontSize: 13, color: "var(--t2)" }}>{stockData.name}</span>
                         </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 5 }}>
-                          <span className="mono" style={{ fontSize: 22, fontWeight: 500 }}>{fmtUSD(stockData.price)}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+                          <span className="mono" style={{ fontSize: 20, fontWeight: 500 }}>{fmtUSD(stockData.price)}</span>
                           {chartData.length > 1 && (() => {
                             const chg = chartData[chartData.length - 1].close - chartData[0].close;
                             const p   = (chg / chartData[0].close) * 100;
@@ -682,8 +878,8 @@ export default function AppPage() {
                       {curPos && (() => {
                         const gn = (stockData.price - curPos.avgCost) * curPos.shares;
                         return (
-                          <div style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 8, padding: "8px 14px", textAlign: "right" }}>
-                            <div className="lbl" style={{ marginBottom: 4 }}>Your Position</div>
+                          <div style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 8, padding: "7px 13px", textAlign: "right" }}>
+                            <div className="lbl" style={{ marginBottom: 3 }}>Position</div>
                             <div className="mono" style={{ fontSize: 11 }}>{curPos.shares} sh @ {fmtUSD(curPos.avgCost)}</div>
                             <div className="mono" style={{ fontSize: 12, color: gn >= 0 ? "var(--green)" : "var(--red)", marginTop: 2 }}>{fmtPnL(gn)}</div>
                           </div>
@@ -691,60 +887,140 @@ export default function AppPage() {
                       })()}
                     </div>
                   ) : (
-                    <div style={{ marginBottom: 14 }}>
-                      <span className="serif" style={{ fontSize: 22, color: loading ? "var(--t2)" : "var(--t3)" }}>
+                    <div>
+                      <span className="serif" style={{ fontSize: 20, color: loading ? "var(--t2)" : "var(--t3)" }}>
                         {loading ? "Loading…" : stockErr ? "Stock unavailable" : "Select a stock"}
                       </span>
-                      {stockErr && <div className="mono" style={{ fontSize: 11, color: "var(--red)", marginTop: 6 }}>{stockErr} — try a different ticker or date.</div>}
-                      {!stockErr && !loading && <div className="mono" style={{ fontSize: 11, color: "var(--t3)", marginTop: 4 }}>Search for a ticker or click a suggestion to begin</div>}
+                      {!stockErr && !loading && <div className="mono" style={{ fontSize: 11, color: "var(--t3)", marginTop: 3 }}>Search for a ticker or click a suggestion to begin</div>}
                     </div>
                   )}
-                  <div style={{ height: 200 }}>
-                    {loading ? (
-                      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <div style={{ width: 20, height: 20, border: "2px solid var(--b1)", borderTopColor: "var(--t1)", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
-                      </div>
-                    ) : (
-                      <StockChart data={chartData} chartUp={chartUp} avgCost={curPos ? curPos.avgCost : null} />
-                    )}
-                  </div>
                 </div>
 
-                <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-                  {stockData ? (
-                    <>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--amber)" }} />
-                        <span className="lbl">Market Brief · {MONTHS[new Date(simDate).getMonth()]} {simYear}</span>
-                      </div>
-                      <p style={{ fontFamily: "DM Sans", fontSize: 14, color: "var(--t2)", lineHeight: 1.78, maxWidth: 640, marginBottom: 20 }}>
-                        {era.m}{" "}
-                        <strong style={{ color: "var(--t1)", fontWeight: 600 }}>{stockData.name} ({stockData.symbol})</strong>{" "}
-                        is trading at {fmtUSD(stockData.price)}.{" "}
-                        <em>Risk:</em> {era.risk}{" "}
-                        <em>Opportunity:</em> {era.opp}
-                      </p>
-                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                        {[
-                          { l: "Current Price",  v: fmtUSD(stockData.price) },
-                          { l: "Cash Available", v: fmtUSD(cash) },
-                          { l: "Position Value", v: curPos ? fmtUSD(curPos.shares * (prices[stockData.symbol] ?? stockData.price)) : "—" },
-                          { l: "Data Date",      v: stockData.date },
-                        ].map(s => (
-                          <div key={s.l} style={{ background: "var(--surf)", border: "1px solid var(--b1)", borderRadius: 8, padding: "10px 14px", minWidth: 112 }}>
-                            <div className="lbl" style={{ marginBottom: 4 }}>{s.l}</div>
-                            <div className="mono" style={{ fontSize: 13 }}>{s.v}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="mono" style={{ textAlign: "center", padding: "48px 0", color: "var(--t3)", fontSize: 11 }}>
-                      {stockErr ? `⚠ ${stockErr}` : "Search for a stock or click a suggestion in the left panel"}
+                {/* ── Chart — takes 2/3 of remaining vertical space ── */}
+                <div style={{ flex: "0 0 calc(66.67% - 26px)", background: "var(--surf)", borderBottom: "1px solid var(--b1)", padding: "10px 16px 8px", overflow: "hidden", minHeight: 120 }}>
+                  {loading ? (
+                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ width: 20, height: 20, border: "2px solid var(--b1)", borderTopColor: "var(--t1)", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
                     </div>
+                  ) : (
+                    <StockChart data={chartData} chartUp={chartUp} avgCost={curPos ? curPos.avgCost : null} />
                   )}
                 </div>
-              </>
+
+                {/* ── Drag handle between chart and analysis ── */}
+                <div
+                  {...analysisHandleProps}
+                  style={{
+                    ...analysisHandleProps.style,
+                    background: "var(--b1)",
+                    borderTop: "1px solid var(--b1)",
+                    borderBottom: "1px solid var(--b1)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <div style={{ width: 32, height: 2, background: "var(--b2)", borderRadius: 2 }} />
+                </div>
+
+                {/* ── Analysis panel — resizable height ── */}
+                <div style={{ height: analysisPanelH, flexShrink: 0, overflowY: "auto", padding: "14px 20px", background: "var(--surf)", borderTop: "1px solid var(--b1)" }}>
+                  {stockData ? (
+                    <div style={{ display: "flex", gap: 20 }}>
+
+                      {/* Left col: market brief */}
+                      <div style={{ flex: "1 1 340px", minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--amber)", flexShrink: 0 }} />
+                          <span className="lbl">Market Brief · {MONTHS[new Date(simDate).getMonth()]} {simYear}</span>
+                          {stockData.isLive && (
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              background: "#dcfce7", border: "1px solid #86efac",
+                              borderRadius: 20, padding: "1px 8px",
+                              fontFamily: "DM Mono", fontSize: 9, color: "#16a34a", letterSpacing: 1,
+                            }}>
+                              <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#16a34a", animation: "pulse 2s infinite" }} />
+                              LIVE
+                            </span>
+                          )}
+                        </div>
+                        <p style={{ fontFamily: "DM Sans", fontSize: 12, color: "var(--t2)", lineHeight: 1.75, marginBottom: 10 }}>
+                          {era.m}{" "}
+                          <strong style={{ color: "var(--t1)", fontWeight: 600 }}>{stockData.name}</strong>{" "}
+                          is trading at {fmtUSD(stockData.price)}.{" "}
+                          <em>Risk:</em> {era.risk}{" "}
+                          <em>Opportunity:</em> {era.opp}
+                        </p>
+                        {/* Quick stat tiles */}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {[
+                            { l: "Price",    v: fmtUSD(stockData.price) },
+                            { l: "Cash",     v: fmtUSD(cash) },
+                            { l: "Position", v: curPos ? fmtUSD(curPos.shares * (prices[stockData.symbol] ?? stockData.price)) : "—" },
+                            stockData.marketCap  ? { l: "Mkt Cap",  v: stockData.marketCap }  : null,
+                            stockData.peRatio    ? { l: "P/E",      v: stockData.peRatio }     : null,
+                            stockData.beta       ? { l: "Beta",     v: stockData.beta }        : null,
+                          ].filter(Boolean).map(s => (
+                            <div key={s.l} style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 7, padding: "6px 11px", minWidth: 80 }}>
+                              <div className="lbl" style={{ marginBottom: 2, fontSize: 8 }}>{s.l}</div>
+                              <div className="mono" style={{ fontSize: 11, fontWeight: 500 }}>{s.v}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Right col: company profile */}
+                      <div style={{ flex: "0 0 220px", flexShrink: 0 }}>
+                        {(stockData.sector || stockData.industry) && (
+                          <div style={{ marginBottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {stockData.sector && (
+                              <span style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 20, padding: "2px 9px", fontFamily: "DM Mono", fontSize: 9, color: "#1d4ed8" }}>
+                                {stockData.sector}
+                              </span>
+                            )}
+                            {stockData.industry && (
+                              <span style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 20, padding: "2px 9px", fontFamily: "DM Mono", fontSize: 9, color: "var(--t3)" }}>
+                                {stockData.industry}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {stockData.description && (
+                          <p style={{ fontFamily: "DM Sans", fontSize: 11, color: "var(--t3)", lineHeight: 1.65, marginBottom: 8,
+                            display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                            {stockData.description}
+                          </p>
+                        )}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                          {[
+                            stockData.revenue       ? { l: "Revenue",      v: stockData.revenue }       : null,
+                            stockData.grossMargin   ? { l: "Gross Margin", v: stockData.grossMargin }   : null,
+                            stockData.eps           ? { l: "EPS (TTM)",    v: stockData.eps }           : null,
+                            stockData.dividendYield ? { l: "Div Yield",    v: stockData.dividendYield } : null,
+                            stockData.returnOnEquity? { l: "ROE",          v: stockData.returnOnEquity }: null,
+                            stockData.employees     ? { l: "Employees",    v: stockData.employees }     : null,
+                          ].filter(Boolean).map(s => (
+                            <div key={s.l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid var(--b1)" }}>
+                              <span className="mono" style={{ fontSize: 9, color: "var(--t3)" }}>{s.l}</span>
+                              <span className="mono" style={{ fontSize: 10, fontWeight: 500 }}>{s.v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                    </div>
+                  ) : (
+                    /* No grey placeholder — show nothing when no stock is selected */
+                    stockErr ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 0", color: "var(--red)" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <span className="mono" style={{ fontSize: 11 }}>{stockErr}</span>
+                      </div>
+                    ) : null
+                  )}
+                </div>
+              </div>
             )}
 
             {centerTab === "positions" && (
@@ -806,14 +1082,17 @@ export default function AppPage() {
           </main>
 
           {/* ── RIGHT SIDEBAR ── */}
-          <aside style={{ width: rightW, flexShrink: 0, borderLeft: "1px solid var(--b1)", background: "var(--surf)", overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 11, position: "relative" }}>
-            {/* Drag handle */}
+          <aside style={{
+            width: rightW, flexShrink: 0, borderLeft: "1px solid var(--b1)",
+            background: "var(--surf)", overflowY: "auto", padding: 14,
+            display: "flex", flexDirection: "column", gap: 11, position: "relative",
+          }}>
             <div {...rightHandleProps} />
             <div className="lbl">Metrics</div>
             {[
               { l: "Total Value", v: fmtUSD(total), big: true },
               { l: "Cash",        v: fmtUSD(cash),  sub: `${((cash / total) * 100).toFixed(0)}% liquid` },
-              { l: "Equity",      v: fmtUSD(equity),sub: `${positions.length} position${positions.length !== 1 ? "s" : ""}` },
+              { l: "Equity",      v: fmtUSD(equity), sub: `${positions.length} position${positions.length !== 1 ? "s" : ""}` },
               { l: "Total P&L",   v: fmtPnL(pnl),   sub: fmtPct(pnlPct), col: pnl >= 0 ? "var(--green)" : "var(--red)" },
             ].map(m => (
               <div key={m.l} style={{ background: "var(--bg)", border: "1px solid var(--b1)", borderRadius: 8, padding: "10px 12px" }}>
@@ -826,19 +1105,36 @@ export default function AppPage() {
             <div className="lbl">Stock Info</div>
             {stockData ? (
               <div>
+                {/* Live badge */}
+                {stockData.isLive && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 8,
+                    background: "#dcfce7", border: "1px solid #86efac", borderRadius: 6, padding: "4px 9px" }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#16a34a", flexShrink: 0 }} />
+                    <span className="mono" style={{ fontSize: 9, color: "#16a34a", letterSpacing: 1 }}>LIVE DATA</span>
+                  </div>
+                )}
                 {[
-                  { l: "Symbol",    v: stockData.symbol },
-                  { l: "Last Price", v: fmtUSD(stockData.price) },
-                  { l: "As Of",     v: stockData.date },
+                  { l: "Symbol",      v: stockData.symbol },
+                  { l: "Last Price",  v: fmtUSD(stockData.price) },
+                  { l: "As Of",       v: stockData.date },
                   ...(chartData.length > 1 ? [
-                    { l: "30d High", v: fmtUSD(Math.max(...chartData.map(d => d.high || d.close))) },
-                    { l: "30d Low",  v: fmtUSD(Math.min(...chartData.map(d => d.low  || d.close))) },
-                    { l: "Avg Vol",  v: `${(chartData.reduce((s, d) => s + (d.volume || 0), 0) / chartData.length / 1e6).toFixed(1)}M` },
+                    { l: "30d High",  v: fmtUSD(Math.max(...chartData.map(d => d.high || d.close))) },
+                    { l: "30d Low",   v: fmtUSD(Math.min(...chartData.map(d => d.low  || d.close))) },
+                    { l: "Avg Vol",   v: `${(chartData.reduce((s, d) => s + (d.volume || 0), 0) / chartData.length / 1e6).toFixed(1)}M` },
                   ] : []),
-                ].map(s => (
-                  <div key={s.l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f1f0ea" }}>
+                  stockData.fiftyTwoWeekHigh ? { l: "52w High", v: stockData.fiftyTwoWeekHigh } : null,
+                  stockData.fiftyTwoWeekLow  ? { l: "52w Low",  v: stockData.fiftyTwoWeekLow  } : null,
+                  stockData.marketCap        ? { l: "Mkt Cap",  v: stockData.marketCap         } : null,
+                  stockData.peRatio          ? { l: "P/E",      v: stockData.peRatio           } : null,
+                  stockData.pbRatio          ? { l: "P/B",      v: stockData.pbRatio           } : null,
+                  stockData.eps              ? { l: "EPS",      v: stockData.eps               } : null,
+                  stockData.beta             ? { l: "Beta",     v: stockData.beta              } : null,
+                  stockData.dividendYield    ? { l: "Div Yield",v: stockData.dividendYield     } : null,
+                  stockData.sector           ? { l: "Sector",   v: stockData.sector            } : null,
+                ].filter(Boolean).map(s => (
+                  <div key={s.l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid var(--b1)" }}>
                     <span className="mono" style={{ fontSize: 9, color: "var(--t3)" }}>{s.l}</span>
-                    <span className="mono" style={{ fontSize: 11 }}>{s.v}</span>
+                    <span className="mono" style={{ fontSize: 10, maxWidth: 110, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.v}</span>
                   </div>
                 ))}
               </div>
